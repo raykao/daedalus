@@ -2,22 +2,31 @@
 
 Kubernetes-native agent orchestration platform. Dispatches work to ephemeral AI agent workers via message queues, using the [A2A protocol](https://a2a-protocol.org/) for structured communication and [KEDA](https://keda.sh/) for elastic scaling.
 
+**Runtime-agnostic by design.** The platform provides queue dispatch, scaling, discovery, and observability. Users bring their own agent runtime - copilot-bridge, kagent ADK, LangGraph, CrewAI, or any container that speaks A2A HTTP.
+
 ## Architecture (TL;DR)
 
 ```
 User (Mattermost) --> Orchestrator Bridge --> NATS JetStream --> Worker Pod
-                                                                  |-- Queue-to-A2A Proxy (sidecar)
-                                                                  |     reads queue, POSTs to bridge
-                                                                  +-- copilot-bridge (A2A Server)
-                                                                        reads .agent.md, executes task
-                                                                        pushes to Git, returns result
+                                                                  |
+                                                              ┌───┴───────────────────────────┐
+                                                              │ PLATFORM LAYER (Agent Forge)   │
+                                                              │   Queue-to-A2A Proxy sidecar   │
+                                                              │   reads queue, POSTs to agent   │
+                                                              ├───────────────────────────────--│
+                                                              │ USER LAYER (bring your own)     │
+                                                              │   Any A2A-compliant server:     │
+                                                              │     copilot-bridge (default)    │
+                                                              │     kagent ADK                  │
+                                                              │     LangGraph / CrewAI / custom │
+                                                              └─────────────────────────────────┘
 ```
 
 **Key design decisions:**
 - **A2A on native HTTP** - agents speak standard A2A protocol. No custom bindings.
 - **Queue for decoupling** - NATS JetStream provides buffering, retry, scale-to-zero.
 - **Proxy bridges the gap** - a thin Go sidecar (~300 lines) reads from queue, calls A2A HTTP on localhost, writes results back.
-- **Bridge as runtime harness** - copilot-bridge interprets `.agent.md` files, provides MCP tools, manages sessions.
+- **Pluggable agent runtime** - the proxy doesn't care what's behind the A2A endpoint. Ship copilot-bridge, ADK, or your own container.
 - **Helm + KEDA for deployment** - workers scale 0-to-N based on queue depth.
 
 ## Repository Structure

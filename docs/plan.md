@@ -121,6 +121,156 @@ Goal: deploy to Kubernetes with KEDA-based autoscaling.
 
 ---
 
+## Phase 3 - Pluggable Runtime and Operator
+
+Goal: make the platform runtime-agnostic and declaratively managed via K8s CRDs.
+
+### Architectural Insight: The Two-Layer Container Model
+
+The proxy sidecar pattern from Phase 0 is inherently runtime-agnostic. The proxy speaks queue (NATS) on one side and A2A HTTP on the other. It doesn't know or care what's behind the A2A endpoint. This means the platform naturally separates into two layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Worker Pod                                                      │
+│                                                                   │
+│  ┌────────────────────────┐    ┌────────────────────────────┐    │
+│  │  PLATFORM LAYER        │    │  USER LAYER                │    │
+│  │  (Agent Forge provides)│    │  (User brings their own)   │    │
+│  │                        │    │                            │    │
+│  │  Queue-to-A2A Proxy    │◄──►│  Any A2A-compliant server  │    │
+│  │  - NATS consumer       │HTTP│  ┌──────────────────────┐  │    │
+│  │  - A2A HTTP client     │    │  │ copilot-bridge       │  │    │
+│  │  - SSE event forwarder │    │  │ kagent ADK           │  │    │
+│  │  - Health check        │    │  │ LangGraph            │  │    │
+│  │  - Trace propagation   │    │  │ CrewAI               │  │    │
+│  │  - Graceful shutdown   │    │  │ Custom Go/Python/... │  │    │
+│  │                        │    │  └──────────────────────┘  │    │
+│  └────────────────────────┘    └────────────────────────────┘    │
+│                                                                   │
+│  Contract: agent runtime MUST:                                    │
+│    1. Accept A2A message/send on localhost:PORT                    │
+│    2. Return A2A Task responses (with SSE streaming optional)    │
+│    3. Serve AgentCard at /.well-known/agent-card.json             │
+│    4. Handle SIGTERM gracefully                                   │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**What this enables:**
+- Users package their agent runtime as a container image
+- They declare it in an `AgentRuntime` CRD (or Helm values)
+- Agent Forge handles queue dispatch, scaling, discovery, observability
+- No lock-in to copilot-bridge - swap runtimes without changing the platform
+- A kagent ADK agent and a copilot-bridge agent can run side by side in the same factory
+- Third-party agents (LangGraph, CrewAI, BeeAI, custom) plug in with zero platform changes
+
+**copilot-bridge becomes the default runtime, not the only runtime.**
+
+### 3.1 Runtime Contract and Interface Spec
+
+Define the formal contract between the platform layer (proxy) and the user layer (agent runtime):
+
+**Deliverables:**
+- A2A server interface spec (minimum viable: `message/send`, AgentCard, health)
+- Container interface spec (ports, env vars, volume mounts, shutdown signals)
+- Conformance test suite that validates any runtime against the contract
+- Reference implementation using copilot-bridge
+
+### 3.2 K8s Operator with CRDs
+
+Build a Go operator using kubebuilder, adopting patterns from kagent's v1alpha2 CRD design:
+
+**CRDs (informed by kagent analysis):**
+
+| CRD | Purpose | kagent Equivalent | Adopted Patterns |
+|-----|---------|-------------------|-----------------|
+| `AgentRuntime` | Defines a worker type: container image, scaling, queue binding, AgentCard | `Agent` (BYO type) | `TypedReference` for cross-resource refs, `AllowedNamespaces` for multi-tenant |
+| `MCPServer` | Shared MCP server deployment (SSE transport) | `RemoteMCPServer` | Protocol enum (SSE/StreamableHTTP), `headersFrom` via `ValueRef` |
+| `ModelConfig` | LLM provider configuration | `ModelConfig` | Secret hash tracking in status, provider-specific config blocks |
+| `TaskPipeline` | Multi-step workflow routing | No equivalent | Fan-out/fan-in, dependency ordering |
+| `AgentCard` | A2A capability registry | Inline in `Agent.spec.a2aConfig` | Skill definitions with tags, input/output modes |
+
+**Design decisions from kagent to adopt:**
+
+1. **`TypedReference`** for all cross-resource references:
+   ```go
+   type TypedReference struct {
+       Kind      string `json:"kind"`
+       ApiGroup  string `json:"apiGroup"`
+       Name      string `json:"name"`
+       Namespace string `json:"namespace,omitempty"`
+   }
+   ```
+
+2. **`AllowedNamespaces`** for cross-namespace authorization (Gateway API pattern):
+   ```go
+   type AllowedNamespaces struct {
+       From     FromNamespaces        `json:"from"` // All | Same | Selector
+       Selector *metav1.LabelSelector `json:"selector,omitempty"`
+   }
+   ```
+
+3. **`ValueRef` / `ValueSource`** for flexible config resolution:
+   ```go
+   type ValueRef struct {
+       Name      string       `json:"name"`
+       Value     string       `json:"value,omitempty"`
+       ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+   }
+   ```
+
+4. **Secret hash in status** for credential rotation detection:
+   ```go
+   type ModelConfigStatus struct {
+       SecretHash string `json:"secretHash,omitempty"`
+       // Controller reconciles when hash changes
+   }
+   ```
+
+5. **Agent type enum** (Declarative vs BYO) - maps to our model:
+   - `Declarative` = copilot-bridge with `.agent.md` files (platform-managed)
+   - `BYO` = user-provided container image speaking A2A (user-managed)
+
+**Deliverables:**
+- Kubebuilder scaffolded operator in `go/`
+- CRD schemas (OpenAPI v3 validation)
+- Controller reconcilers: AgentRuntime -> KEDA ScaledJob + ConfigMap
+- Helm chart for operator deployment
+
+### 3.3 Context Management (from kagent R7/R18)
+
+Adopt kagent's context compression config as a reference for our session management:
+
+```yaml
+# In AgentRuntime CRD spec
+context:
+  compaction:
+    compactionInterval: 5    # Compact after N invocations
+    tokenThreshold: 80000    # Compact when tokens exceed this
+    eventRetentionSize: 10   # Always keep N recent events
+    overlapSize: 2           # Overlap for continuity
+    summarizer:
+      modelConfig: "summarizer-model"  # Optional separate model
+```
+
+**Deliverables:**
+- Context compaction config in AgentRuntime CRD
+- Integration with session resurrection strategy (R18 decision tree)
+- Proxy-side context usage tracking (forward from bridge metrics)
+
+### 3.4 Multi-Runtime Integration Test
+
+Validate the pluggable runtime model by running two different agent runtimes in the same factory:
+
+**Deliverables:**
+- copilot-bridge worker handling coding tasks
+- kagent ADK worker (or simple Python A2A server) handling a different task type
+- Both dispatched by the same orchestrator via queue
+- Both discovered via AgentCard registry
+- Validate A2A interop: one agent's output fed as input to the other
+
+---
+
 ## Deferred (Pending Validation)
 
 These items are tracked in the [risk register](../research/hybrid-comms-architecture.md#open-questions-and-risk-register) and will be promoted when their prerequisites are met:
