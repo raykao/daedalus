@@ -9,11 +9,14 @@ This plan covers Phase 0 (foundation) through the first deployable system. Later
 ## Guiding Principles
 
 - Build the simplest thing that validates the architecture
-- Use A2A on its native HTTP transport (no custom bindings)
-- Queue provides decoupling - proxy bridges queue to A2A
-- Workers are headless copilot-bridge instances (not bare CLI)
+- **ACP for intra-pod** (proxy to agent) - the agent CLIs already speak it
+- **A2A for inter-agent** (orchestrator to workers via queue) - standardized task model
+- Queue provides decoupling - proxy bridges NATS queue to ACP agent
+- **Runtime-agnostic** - any ACP-compatible agent CLI plugs in (Copilot, Claude, Codex, Gemini, 17+ others)
+- Layer 2 wrappers (copilot-bridge, acpx) are optional, not required
 - Helm + KEDA for deployment (no custom operator yet)
 - Static AgentCard config for discovery (dynamic registration deferred)
+- See [architecture-layers.md](architecture-layers.md) for the full four-layer model
 
 ---
 
@@ -21,31 +24,33 @@ This plan covers Phase 0 (foundation) through the first deployable system. Later
 
 Goal: validate the core primitives individually before wiring them together.
 
-### 0.1 Queue-to-A2A Proxy prototype
-Build the Go sidecar that reads from NATS JetStream, POSTs to a local A2A server (mock first, then bridge), consumes SSE status events, and publishes results back to the queue.
+### 0.1 Queue-to-ACP Proxy prototype
+Build the proxy sidecar that reads from NATS JetStream and drives an agent via ACP. The proxy speaks A2A externally (queue side) and ACP internally (agent side).
 
 **Deliverables:**
 - Go module in `cmd/proxy/`
-- NATS consumer with ack/nack handling
-- A2A HTTP client (SendMessage, StreamMessage)
-- SSE event consumer that forwards status to `agent.status` subject
-- Result publisher to `agent.results` subject
-- Unit tests with mock A2A server
+- NATS consumer with ack/nack handling (A2A envelope as queue message format)
+- ACP client: `initialize`, `session/new`, `session/prompt`, `session/cancel`
+- ACP `session/update` consumer that forwards status to `agent.status` subject
+- ACP `session/request_permission` handler (auto-approve for v1, relay for v2)
+- Result publisher to `agent.results` subject (A2A Task format)
+- Unit tests with mock ACP agent
 - Dockerfile for the proxy (~20MB alpine-based image)
+- Evaluate acpx as a dependency vs. building ACP client from scratch
 
-### 0.2 copilot-bridge A2A server mode
-Determine how to run copilot-bridge as an A2A-compatible HTTP server. Options:
-- Thin HTTP wrapper around the bridge SDK that accepts A2A `message/send` requests
-- Direct adapter that translates A2A requests into bridge session calls
+### 0.2 Validate Copilot CLI as ACP agent
+Copilot CLI supports `copilot --acp --port 3000` (TCP mode). Validate that our proxy can drive it end-to-end without copilot-bridge as an intermediary.
 
 **Deliverables:**
-- Working bridge instance that accepts A2A `message/send` over HTTP on localhost
-- Serves AgentCard at `/.well-known/agent-card.json`
-- Returns A2A Task responses with status updates via SSE
-- Can run headless (no Mattermost connection required)
+- Start Copilot CLI in ACP TCP mode inside a container
+- Proxy connects, creates session, sends prompt, receives streamed response
+- Validate MCP server passthrough (proxy passes mcpServers[] in session/new)
+- Test session/load for resume (if Copilot CLI supports loadSession capability)
+- Document which ACP capabilities Copilot CLI advertises
+- Compare with claude --acp and codex --acp to confirm runtime-agnostic behavior
 
 ### 0.3 Docker Compose integration test
-Wire proxy + bridge + NATS in a single Docker Compose stack. Validate the full loop: publish task to queue, proxy dequeues, proxy calls bridge, bridge executes, result flows back through queue.
+Wire proxy + agent CLI + NATS in a single Docker Compose stack. Validate the full loop: publish A2A task to queue, proxy dequeues, proxy drives agent via ACP, result flows back through queue.
 
 **Deliverables:**
 - `docker-compose.yml` with NATS (JetStream enabled), bridge worker, proxy sidecar

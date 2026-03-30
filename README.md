@@ -7,26 +7,31 @@ Kubernetes-native agent orchestration platform. Dispatches work to ephemeral AI 
 ## Architecture (TL;DR)
 
 ```
-User (Mattermost) --> Orchestrator Bridge --> NATS JetStream --> Worker Pod
-                                                                  |
-                                                              ┌───┴───────────────────────────┐
-                                                              │ PLATFORM LAYER (Agent Forge)   │
-                                                              │   Queue-to-A2A Proxy sidecar   │
-                                                              │   reads queue, POSTs to agent   │
-                                                              ├───────────────────────────────--│
-                                                              │ USER LAYER (bring your own)     │
-                                                              │   Any A2A-compliant server:     │
-                                                              │     copilot-bridge (default)    │
-                                                              │     kagent ADK                  │
-                                                              │     LangGraph / CrewAI / custom │
-                                                              └─────────────────────────────────┘
+User (Mattermost) --> Orchestrator --> NATS JetStream --> Worker Pod
+                      (A2A tasks)     (A2A envelope)       |
+                                                       ┌───┴──────────────────────────────┐
+                                                       │ PLATFORM LAYER (Agent Forge)      │
+                                                       │   Queue-to-ACP Proxy sidecar      │
+                                                       │   reads queue (A2A), drives agent  │
+                                                       │   via ACP, writes results back     │
+                                                       ├──────────────────────────────────--│
+                                                       │ USER LAYER (bring your own)        │
+                                                       │   Any ACP-compatible agent:        │
+                                                       │     copilot --acp (default)        │
+                                                       │     claude --acp / codex --acp     │
+                                                       │     gemini --acp / qwen --acp      │
+                                                       │     + 12 more ACP agents           │
+                                                       │   Optional Layer 2 wrapper:        │
+                                                       │     acpx (sessions, flows)         │
+                                                       │     copilot-bridge (hooks, personas)│
+                                                       └───────────────────────────────────-┘
 ```
 
 **Key design decisions:**
-- **A2A on native HTTP** - agents speak standard A2A protocol. No custom bindings.
+- **ACP intra-pod** - proxy drives agent via Agent Client Protocol (the LSP of agents). 17+ agent CLIs already support it.
+- **A2A inter-agent** - orchestrator dispatches tasks using A2A protocol via NATS queue. Standardized discovery, task lifecycle, capabilities.
 - **Queue for decoupling** - NATS JetStream provides buffering, retry, scale-to-zero.
-- **Proxy bridges the gap** - a thin Go sidecar (~300 lines) reads from queue, calls A2A HTTP on localhost, writes results back.
-- **Pluggable agent runtime** - the proxy doesn't care what's behind the A2A endpoint. Ship copilot-bridge, ADK, or your own container.
+- **Pluggable agent runtime** - any ACP-compatible CLI works. Layer 2 wrappers (copilot-bridge, acpx) are optional.
 - **Helm + KEDA for deployment** - workers scale 0-to-N based on queue depth.
 
 ## Repository Structure
@@ -35,11 +40,13 @@ User (Mattermost) --> Orchestrator Bridge --> NATS JetStream --> Worker Pod
 research/           # Architecture research papers (from dark-factory)
 docs/               # Planning and tracking documents
   plan.md           # Implementation plan and phase breakdown
+  architecture-layers.md  # Four-layer model, ACP vs A2A, protocol map
+  comparison-kagent.md    # Comparison with kagent (Solo.io)
 cmd/
-  proxy/            # Queue-to-A2A proxy sidecar (Go)
+  proxy/            # Queue-to-ACP proxy sidecar (Go)
 deploy/
   helm/             # Helm chart for factory deployment
-  docker/           # Dockerfiles for bridge worker + proxy
+  docker/           # Dockerfiles for proxy + agent containers
 ```
 
 ## Research
