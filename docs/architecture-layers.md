@@ -31,28 +31,69 @@ The agent ecosystem has four distinct layers. Each project in the space occupies
 
 ## Protocol Map
 
-Two protocols handle different relationship types:
+Three protocols serve different relationships. The key distinction is where each protocol operates and what transport carries it:
 
-| Protocol | Relationship | Direction | Transport | Use in Agent Forge |
+| Protocol | Relationship | Where Used | Transport | Role in Agent Forge |
 |----------|-------------|-----------|-----------|-------------------|
-| **ACP** (Agent Client Protocol) | Client drives Agent | Client -> Agent | stdio or TCP (JSON-RPC/NDJSON) | Proxy sidecar -> agent runtime (intra-pod) |
-| **A2A** (Agent-to-Agent Protocol) | Peer agents collaborate | Bidirectional | HTTP/gRPC | Orchestrator <-> workers (inter-agent, via queue) |
-| **MCP** (Model Context Protocol) | Agent calls Tools | Agent -> Tool server | stdio or SSE/HTTP | Agent runtime -> tool servers |
+| **ACP** (Agent Client Protocol) | Client drives Agent | Intra-pod (proxy to agent) | stdio or TCP (JSON-RPC/NDJSON) | Proxy sidecar drives agent CLI |
+| **A2A** (Agent-to-Agent Protocol) | Peer agents collaborate | Inter-agent (orchestrator to workers) | **Data model on queue** (not HTTP) | Message envelope format on NATS |
+| **MCP** (Model Context Protocol) | Agent calls Tools | Agent to tool servers | stdio or SSE/HTTP | Agent runtime accesses tools |
 
 ```
-                         A2A (inter-agent, via queue)
-Orchestrator ◄─────────────────────────────────────────► Worker Pod
-                                                           │
-                                                      ACP (intra-pod)
-                                                    Proxy ◄──────────► Agent CLI
-                                                                         │
-                                                                    MCP (tools)
-                                                                Agent CLI ──► MCP Servers
+                    A2A data model (on NATS queue, not HTTP)
+Orchestrator ──────────────────────────────────────────────► Worker Pod
+  │                                                            │
+  │  Future: A2A HTTP endpoint                            ACP (intra-pod)
+  │  for external callers                               Proxy ◄──────────► Agent CLI
+  │                                                                          │
+  ▼                                                                     MCP (tools)
+External Agent ──A2A HTTP──► Orchestrator                           Agent CLI ──► MCP Servers
+  (Phase 3, optional)          (same envelope,
+                                just HTTP ingress)
 ```
 
 **ACP is the LSP of agents** - it standardizes the client-agent interface so any editor (or proxy, or orchestrator) can drive any agent. Just as LSP lets VS Code talk to any language server, ACP lets our proxy talk to Copilot CLI, Claude Code, Codex, Gemini, or any of 17+ ACP-compatible agents.
 
-**A2A is the REST of agents** - it standardizes peer communication so agents can discover each other and delegate tasks. Used on the orchestration side where agents are treated as opaque services.
+**A2A provides the data model, not the transport.** We use A2A's Task, Message, Part, and Artifact types as the queue message schema. We do *not* use A2A's HTTP/gRPC transport between orchestrator and workers - the queue handles that. This gives us a standardized, well-maintained schema without the overhead of HTTP hops. See [A2A Protocol Decision](#a2a-protocol-decision-data-model-yes-transport-no) for the full rationale.
+
+### A2A Protocol Decision: Data Model Yes, Transport No
+
+This decision was reached after evaluating whether A2A protocol is needed in the internal factory loop, and if so, which parts.
+
+**The tension:** A2A adds JSON nesting and protocol ceremony (jsonrpc, method, params) to what could be a flat JSON message. Is it worth it?
+
+**What A2A's data model costs us:** A few extra fields per message. The envelope is ~30% larger than a minimal custom schema. Every developer touching the queue needs to understand A2A's `Part`, `Message`, `Artifact` nesting.
+
+**What A2A's data model buys us:**
+- **No schema to maintain** - A2A community maintains the spec, SDKs validate it
+- **Future interop is free** - if we expose the queue as an A2A HTTP endpoint for external agents, the messages are already A2A-shaped. No translation layer, no schema migration.
+- **AgentCards as a discovery format** - even without A2A's HTTP discovery, the AgentCard JSON structure is a useful, standardized way to describe agent capabilities
+- **Task lifecycle states** - submitted, working, completed, failed, canceled - already defined and agreed upon by the industry
+
+**What we skip (A2A HTTP transport):**
+- No HTTP calls between orchestrator and workers - queue provides decoupling, buffering, scale-to-zero
+- No `/.well-known/agent-card.json` served by workers - they're ephemeral, can't serve HTTP. Registry handles discovery.
+- No SSE streaming from workers to orchestrator - status updates flow through queue subjects instead
+
+**The architectural payoff - external interop becomes trivial:**
+
+```
+Today (internal only):
+  Orchestrator --A2A envelope--> NATS --> Proxy --ACP--> Agent
+
+Phase 3 (add external interop):
+  External Agent --A2A HTTP POST--> Orchestrator --same A2A envelope--> NATS --> (same)
+                                     │
+                                     └── Thin HTTP adapter (~50 lines)
+                                         Accepts A2A message/send
+                                         Enqueues to NATS
+                                         Returns A2A Task ID
+                                         Streams status via SSE from agent.status subject
+```
+
+The adapter is trivial because the internal messages are *already* A2A-shaped. If we'd used a custom schema, this adapter would need a full bidirectional translation layer.
+
+**Decision:** Use A2A's data model as the queue envelope. Skip A2A's HTTP transport internally. Add A2A HTTP ingress on the orchestrator when external interop is needed (Phase 3). The marginal cost of A2A's JSON structure is low; the optionality it preserves is high.
 
 ## Layer-by-Layer Analysis
 
@@ -227,12 +268,14 @@ Or for full autopilot: proxy returns `{ outcome: "approved" }` for everything (e
 
 ## Summary: What Changed
 
-| Before | After |
+| Before (original hybrid design) | After (layered ACP + A2A) |
 |--------|-------|
-| Proxy speaks A2A HTTP to agent | Proxy speaks **ACP** to agent, **A2A** externally |
-| copilot-bridge is the agent runtime | copilot-bridge is **one option**; any ACP agent works |
+| Proxy speaks A2A HTTP to agent | Proxy speaks **ACP** to agent; **A2A data model** on queue (not HTTP) |
+| A2A HTTP transport between all components | A2A **data model only** on queue; HTTP transport **deferred** to Phase 3 edge |
+| copilot-bridge is the agent runtime | copilot-bridge is **one option**; any ACP agent works (17+) |
 | Custom A2A server wrapper needed for bridge | **Not needed** - Copilot CLI speaks ACP natively |
 | Session restoration via SQLite blob archive | **ACP session/load** may handle it natively |
 | Permission relay undesigned (R5) | **ACP request_permission** provides the mechanism |
 | 1 supported agent (Copilot) | **17+ agents** via ACP ecosystem |
 | Layer 2 always required | Layer 2 is **optional** - direct CLI for simple tasks |
+| External interop requires new protocol work | External interop is **trivial** - messages already A2A-shaped, add HTTP ingress |
