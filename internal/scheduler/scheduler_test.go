@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -556,8 +557,41 @@ func TestScheduler_WaitForContextCancellation_PartialResults(t *testing.T) {
 	if result.TaskResults["A"].Status != "completed" {
 		t.Errorf("A: expected completed, got %s", result.TaskResults["A"].Status)
 	}
-	// B should be failed or canceled (context error).
+	// B should be canceled (context error), not failed.
 	if result.TaskResults["B"] == nil {
 		t.Fatal("expected B in results even on cancellation")
 	}
+	if result.TaskResults["B"].Status != "canceled" {
+		t.Errorf("B: expected canceled, got %s", result.TaskResults["B"].Status)
+	}
+}
+
+func TestScheduler_DuplicateTaskIDsReturnsError(t *testing.T) {
+	sched := scheduler.NewScheduler(newMockDispatcher(), newMockResultWaiter(), nil)
+	req := scheduler.ScheduleRequest{
+		Tasks: []scheduler.ScheduledTask{
+			makeTask("A"),
+			makeTask("A"), // duplicate
+		},
+	}
+	_, err := sched.Schedule(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for duplicate task ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate task ID") {
+		t.Errorf("expected error to contain %q, got: %v", "duplicate task ID", err)
+	}
+}
+
+// containsSubstring reports whether s contains substr.
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}())
 }

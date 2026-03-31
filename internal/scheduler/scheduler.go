@@ -60,6 +60,9 @@ func (s *Scheduler) Schedule(ctx context.Context, req ScheduleRequest) (*Schedul
 		if t.ID == "" {
 			return nil, fmt.Errorf("scheduler: task at index %d has empty ID", i)
 		}
+		if _, exists := taskByID[t.ID]; exists {
+			return nil, fmt.Errorf("scheduler: duplicate task ID %q at index %d", t.ID, i)
+		}
 		taskByID[t.ID] = t
 	}
 
@@ -194,9 +197,13 @@ func (s *Scheduler) Schedule(ctx context.Context, req ScheduleRequest) (*Schedul
 		// Collect and process wait results sequentially.
 		for wr := range waitCh {
 			if wr.err != nil {
+				status := "failed"
+				if errors.Is(wr.err, context.Canceled) || errors.Is(wr.err, context.DeadlineExceeded) {
+					status = "canceled"
+				}
 				outcomes[wr.specID] = &TaskOutcome{
 					TaskID: wr.specID,
-					Status: "failed",
+					Status: status,
 					Error:  wr.err,
 					Batch:  batchNum,
 				}
