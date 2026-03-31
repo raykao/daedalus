@@ -1,0 +1,21 @@
+apiVersion: v2
+name: agent-forge
+description: Agent Forge platform - AI agent dispatch and orchestration via NATS JetStream
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - agents
+  - nats
+  - acp
+home: https://github.com/raykao/agent-forge
+sources:
+  - https://github.com/raykao/agent-forge
+maintainers:
+  - name: raykao
+dependencies:
+  - name: nats
+    version: ">=7.0.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: nats.enabled

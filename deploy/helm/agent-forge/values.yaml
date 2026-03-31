@@ -1,0 +1,194 @@
+# Global settings
+global:
+  logLevel: info
+
+# NATS JetStream message broker
+nats:
+  enabled: true
+  # URL used by proxy sidecars to reach NATS.
+  # When nats.enabled=true this points to the subchart service name.
+  # Override with an external URL when nats.enabled=false.
+  url: "nats://agent-forge-nats:4222"
+  # Bitnami NATS subchart values (only used when nats.enabled=true)
+  auth:
+    enabled: false
+  jetstream:
+    enabled: true
+  # JetStream requires persistence and StatefulSet (bitnami/nats chart constraint)
+  resourceType: "statefulset"
+  persistence:
+    enabled: true
+    size: 1Gi
+
+# Proxy sidecar image - shared default across all workers
+proxy:
+  image:
+    repository: ghcr.io/raykao/agent-forge-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
+
+# Agent registry - injected into proxy sidecars as a ConfigMap
+registry:
+  config: |
+    {
+      "agents": [
+        {
+          "card": {
+            "name": "copilot",
+            "description": "GitHub Copilot agent for code assistance",
+            "version": "1.0.0",
+            "defaultInputModes": ["text"],
+            "defaultOutputModes": ["text"],
+            "skills": [
+              {
+                "id": "code-review",
+                "name": "Code Review",
+                "description": "Review code for bugs, style, and best practices",
+                "tags": ["code", "review", "quality"],
+                "examples": ["Review this PR for security issues", "Check this function for bugs"]
+              },
+              {
+                "id": "code-generation",
+                "name": "Code Generation",
+                "description": "Generate code from natural language descriptions",
+                "tags": ["code", "generation", "development"],
+                "examples": ["Write a Go HTTP handler for user login", "Generate unit tests for this function"]
+              },
+              {
+                "id": "debugging",
+                "name": "Debugging",
+                "description": "Identify and fix bugs in code",
+                "tags": ["code", "debugging", "troubleshooting"],
+                "examples": ["Why is this goroutine leaking?", "Find the nil pointer dereference in this code"]
+              },
+              {
+                "id": "documentation",
+                "name": "Documentation",
+                "description": "Generate and improve code documentation",
+                "tags": ["docs", "writing", "code"],
+                "examples": ["Document this package", "Write godoc comments for these exported functions"]
+              }
+            ],
+            "capabilities": { "streaming": false, "pushNotifications": false }
+          },
+          "queueSubject": "agent.tasks.copilot",
+          "runtime": "copilot-bridge",
+          "acpPort": 3000
+        },
+        {
+          "card": {
+            "name": "claude",
+            "description": "Anthropic Claude agent for research and analysis",
+            "version": "1.0.0",
+            "defaultInputModes": ["text"],
+            "defaultOutputModes": ["text"],
+            "skills": [
+              {
+                "id": "research",
+                "name": "Research",
+                "description": "Conduct in-depth research on technical topics",
+                "tags": ["research", "analysis", "knowledge"],
+                "examples": ["Research best practices for Kubernetes RBAC", "Compare gRPC vs REST for microservices"]
+              },
+              {
+                "id": "analysis",
+                "name": "Analysis",
+                "description": "Analyze complex systems, architectures, and tradeoffs",
+                "tags": ["analysis", "architecture", "review"],
+                "examples": ["Analyze the performance implications of this design", "Review this architecture for scalability"]
+              },
+              {
+                "id": "writing",
+                "name": "Writing",
+                "description": "Produce structured technical documents and reports",
+                "tags": ["writing", "docs", "communication"],
+                "examples": ["Write an RFC for this proposal", "Draft a post-mortem report"]
+              },
+              {
+                "id": "code-review",
+                "name": "Code Review",
+                "description": "Review code with focus on architecture and design patterns",
+                "tags": ["code", "review", "architecture"],
+                "examples": ["Review this module for SOLID violations", "Evaluate error handling patterns in this codebase"]
+              }
+            ],
+            "capabilities": { "streaming": false, "pushNotifications": false }
+          },
+          "queueSubject": "agent.tasks.claude",
+          "runtime": "acp-container",
+          "acpPort": 3001
+        },
+        {
+          "card": {
+            "name": "codex",
+            "description": "OpenAI Codex agent for code generation and refactoring",
+            "version": "1.0.0",
+            "defaultInputModes": ["text"],
+            "defaultOutputModes": ["text"],
+            "skills": [
+              {
+                "id": "code-generation",
+                "name": "Code Generation",
+                "description": "Generate production-ready code from specifications",
+                "tags": ["code", "generation", "development"],
+                "examples": ["Implement this interface in Go", "Create a REST API from this OpenAPI spec"]
+              },
+              {
+                "id": "refactoring",
+                "name": "Refactoring",
+                "description": "Refactor code for clarity, performance, and maintainability",
+                "tags": ["code", "refactoring", "quality"],
+                "examples": ["Extract this logic into a reusable package", "Simplify this nested conditional"]
+              },
+              {
+                "id": "testing",
+                "name": "Testing",
+                "description": "Generate comprehensive test suites",
+                "tags": ["code", "testing", "quality"],
+                "examples": ["Write table-driven tests for this function", "Generate integration tests for this API"]
+              }
+            ],
+            "capabilities": { "streaming": false, "pushNotifications": false }
+          },
+          "queueSubject": "agent.tasks.codex",
+          "runtime": "acp-container",
+          "acpPort": 3002
+        }
+      ]
+    }
+
+# Worker definitions - one Deployment per entry
+workers:
+  - name: copilot
+    enabled: true
+    replicas: 1
+    queueSubject: "agent.tasks.copilot"
+    acpPort: 3000
+    proxy:
+      image:
+        repository: ghcr.io/raykao/agent-forge-proxy
+        tag: latest
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    image:
+      repository: ghcr.io/raykao/copilot-bridge
+      tag: latest
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    env: []
+
+# Grace period must exceed the proxy drain timeout (30s) plus a small buffer.
+# Phase 0.4 SIGTERM validation established 35s as the correct value.
+terminationGracePeriodSeconds: 35

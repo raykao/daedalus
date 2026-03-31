@@ -1,0 +1,6 @@
+dependencies:
+- name: nats
+  repository: https://charts.bitnami.com/bitnami
+  version: 9.0.28
+digest: sha256:4a9641552a62d4d71ee2c2e43634efec0d97fb6c85681d1fd74627327bcf6d98
+generated: "2026-03-30T22:34:05.718853199-04:00"
