@@ -22,7 +22,14 @@ func main() {
 	subject := flag.String("subject", envOrDefault("NATS_SUBJECT", "agent.tasks.>"), "NATS subscribe subject")
 	workDir := flag.String("work-dir", envOrDefault("WORK_DIR", "/workspace"), "Agent session working directory")
 	logLevel := flag.String("log-level", envOrDefault("LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
+	gracePeriodStr := flag.String("grace-period", envOrDefault("GRACE_PERIOD", "30s"), "Graceful shutdown grace period (e.g. 30s)")
 	flag.Parse()
+
+	gracePeriod, err := time.ParseDuration(*gracePeriodStr)
+	if err != nil {
+		slog.Error("invalid grace-period", "value", *gracePeriodStr, "err", err)
+		os.Exit(1)
+	}
 
 	logger := buildLogger(*logLevel)
 	slog.SetDefault(logger)
@@ -33,6 +40,7 @@ func main() {
 		"stream", *stream,
 		"subject", *subject,
 		"work_dir", *workDir,
+		"grace_period", gracePeriod,
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -81,12 +89,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create handler
+	// Create handler and shutdown manager
 	handler := proxy.NewHandler(acpClient, publisher, *workDir, logger)
+	sm := proxy.NewShutdownManager(handler, gracePeriod, logger)
 
-	// Run consumer loop
-	logger.Info("proxy ready, consuming messages")
-	if err := consumer.Run(ctx, handler.Handle); err != nil {
+	// Run consumer in a goroutine using the shutdown manager's work context for
+	// ACP operations. This ensures in-flight Handle calls are not aborted the
+	// moment SIGTERM cancels the consumer context; they get the full grace period.
+	consumerErr := make(chan error, 1)
+	go func() {
+		consumerErr <- consumer.Run(ctx, func(consumerCtx context.Context, data []byte) error {
+			return handler.Handle(sm.WorkContext(), data)
+		})
+	}()
+
+	// Wait for shutdown signal.
+	<-ctx.Done()
+	stop()
+	logger.Info("received shutdown signal, starting graceful shutdown", "grace_period", gracePeriod)
+
+	// Orchestrate graceful shutdown. Use a background context so the shutdown
+	// manager is not constrained by the already-cancelled main ctx.
+	if err := sm.Shutdown(context.Background()); err != nil {
+		logger.Warn("graceful shutdown incomplete", "err", err)
+	}
+
+	// Wait for the consumer goroutine to exit.
+	if err := <-consumerErr; err != nil {
 		logger.Error("consumer error", "err", err)
 		os.Exit(1)
 	}
