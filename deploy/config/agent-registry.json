@@ -1,0 +1,135 @@
+{
+  "agents": [
+    {
+      "card": {
+        "name": "copilot",
+        "description": "GitHub Copilot agent for code assistance",
+        "version": "1.0.0",
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "skills": [
+          {
+            "id": "code-review",
+            "name": "Code Review",
+            "description": "Review code for bugs, style, and best practices",
+            "tags": ["code", "review", "quality"],
+            "examples": ["Review this PR for security issues", "Check this function for bugs"]
+          },
+          {
+            "id": "code-generation",
+            "name": "Code Generation",
+            "description": "Generate code from natural language descriptions",
+            "tags": ["code", "generation", "development"],
+            "examples": ["Write a Go HTTP handler for user login", "Generate unit tests for this function"]
+          },
+          {
+            "id": "debugging",
+            "name": "Debugging",
+            "description": "Identify and fix bugs in code",
+            "tags": ["code", "debugging", "troubleshooting"],
+            "examples": ["Why is this goroutine leaking?", "Find the nil pointer dereference in this code"]
+          },
+          {
+            "id": "documentation",
+            "name": "Documentation",
+            "description": "Generate and improve code documentation",
+            "tags": ["docs", "writing", "code"],
+            "examples": ["Document this package", "Write godoc comments for these exported functions"]
+          }
+        ],
+        "capabilities": {
+          "streaming": false,
+          "pushNotifications": false
+        }
+      },
+      "queueSubject": "agent.tasks.copilot",
+      "runtime": "copilot-bridge",
+      "acpPort": 3000
+    },
+    {
+      "card": {
+        "name": "claude",
+        "description": "Anthropic Claude agent for research and analysis",
+        "version": "1.0.0",
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "skills": [
+          {
+            "id": "research",
+            "name": "Research",
+            "description": "Conduct in-depth research on technical topics",
+            "tags": ["research", "analysis", "knowledge"],
+            "examples": ["Research best practices for Kubernetes RBAC", "Compare gRPC vs REST for microservices"]
+          },
+          {
+            "id": "analysis",
+            "name": "Analysis",
+            "description": "Analyze complex systems, architectures, and tradeoffs",
+            "tags": ["analysis", "architecture", "review"],
+            "examples": ["Analyze the performance implications of this design", "Review this architecture for scalability"]
+          },
+          {
+            "id": "writing",
+            "name": "Writing",
+            "description": "Produce structured technical documents and reports",
+            "tags": ["writing", "docs", "communication"],
+            "examples": ["Write an RFC for this proposal", "Draft a post-mortem report"]
+          },
+          {
+            "id": "code-review",
+            "name": "Code Review",
+            "description": "Review code with focus on architecture and design patterns",
+            "tags": ["code", "review", "architecture"],
+            "examples": ["Review this module for SOLID violations", "Evaluate error handling patterns in this codebase"]
+          }
+        ],
+        "capabilities": {
+          "streaming": false,
+          "pushNotifications": false
+        }
+      },
+      "queueSubject": "agent.tasks.claude",
+      "runtime": "acp-container",
+      "acpPort": 3001
+    },
+    {
+      "card": {
+        "name": "codex",
+        "description": "OpenAI Codex agent for code generation and refactoring",
+        "version": "1.0.0",
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "skills": [
+          {
+            "id": "code-generation",
+            "name": "Code Generation",
+            "description": "Generate production-ready code from specifications",
+            "tags": ["code", "generation", "development"],
+            "examples": ["Implement this interface in Go", "Create a REST API from this OpenAPI spec"]
+          },
+          {
+            "id": "refactoring",
+            "name": "Refactoring",
+            "description": "Refactor code for clarity, performance, and maintainability",
+            "tags": ["code", "refactoring", "quality"],
+            "examples": ["Extract this logic into a reusable package", "Simplify this nested conditional"]
+          },
+          {
+            "id": "testing",
+            "name": "Testing",
+            "description": "Generate comprehensive test suites",
+            "tags": ["code", "testing", "quality"],
+            "examples": ["Write table-driven tests for this function", "Generate integration tests for this API"]
+          }
+        ],
+        "capabilities": {
+          "streaming": false,
+          "pushNotifications": false
+        }
+      },
+      "queueSubject": "agent.tasks.codex",
+      "runtime": "acp-container",
+      "acpPort": 3002
+    }
+  ]
+}
