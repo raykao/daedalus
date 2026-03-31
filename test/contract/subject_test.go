@@ -6,8 +6,10 @@ import (
 )
 
 // subjectPattern enforces the queue subject naming convention: agent.tasks.<agent-name>
-// where agent-name is lowercase alphanumeric starting with a letter, hyphens allowed.
-var subjectPattern = regexp.MustCompile(`^agent\.tasks\.[a-z][a-z0-9-]*$`)
+// where agent-name starts with a lowercase letter, followed by alphanumeric characters
+// and hyphens. Hyphens must be surrounded by alphanumeric characters (no trailing or
+// consecutive hyphens).
+var subjectPattern = regexp.MustCompile(`^agent\.tasks\.[a-z]([a-z0-9](-[a-z0-9]+)*)*$`)
 
 func validateSubject(subject string) error {
 	if !subjectPattern.MatchString(subject) {
@@ -21,7 +23,7 @@ type subjectError struct {
 }
 
 func (e *subjectError) Error() string {
-	return "invalid queue subject: " + e.subject + " (must match ^agent\\.tasks\\.[a-z][a-z0-9-]*$)"
+	return "invalid queue subject: " + e.subject + " (must match ^agent\\.tasks\\.[a-z]([a-z0-9](-[a-z0-9]+)*)*$)"
 }
 
 func TestQueueSubjectNaming(t *testing.T) {
@@ -93,6 +95,16 @@ func TestQueueSubjectNaming(t *testing.T) {
 		{
 			name:    "invalid empty string",
 			subject: "",
+			wantErr: true,
+		},
+		{
+			name:    "invalid trailing hyphen",
+			subject: "agent.tasks.my-agent-",
+			wantErr: true,
+		},
+		{
+			name:    "invalid consecutive hyphens",
+			subject: "agent.tasks.my--agent",
 			wantErr: true,
 		},
 	}

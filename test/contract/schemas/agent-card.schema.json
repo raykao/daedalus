@@ -2,7 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-forge/schemas/agent-card.schema.json",
   "type": "object",
-  "required": ["name", "description", "version", "defaultInputModes", "defaultOutputModes", "skills"],
+  "required": [
+    "name",
+    "description",
+    "version",
+    "defaultInputModes",
+    "defaultOutputModes",
+    "skills"
+  ],
   "properties": {
     "name": {
       "type": "string",
@@ -19,20 +26,27 @@
       "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "minItems": 1
     },
     "defaultOutputModes": {
       "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "minItems": 1
     },
     "skills": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name", "description", "tags"],
+        "required": [
+          "id",
+          "name",
+          "description",
+          "tags"
+        ],
         "properties": {
           "id": {
             "type": "string",

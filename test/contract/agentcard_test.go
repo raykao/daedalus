@@ -107,6 +107,11 @@ func TestAgentCardFormat(t *testing.T) {
 			input:   []byte(`{"name":"agent","description":"desc","version":"1.0.0","defaultInputModes":["text"],"defaultOutputModes":["text"],"skills":[{"name":"S","description":"d","tags":[]}]}`),
 			wantErr: true,
 		},
+		{
+			name:    "invalid empty defaultInputModes",
+			input:   []byte(`{"name":"test","description":"test","version":"1.0","defaultInputModes":[],"defaultOutputModes":["text"],"skills":[{"id":"s1","name":"S","description":"D","tags":["t"]}]}`),
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

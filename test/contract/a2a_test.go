@@ -75,6 +75,11 @@ func TestA2AMessageFormat(t *testing.T) {
 			input:   []byte(`{"messageId":"msg-1","role":"user","parts":[]}`),
 			wantErr: true,
 		},
+		{
+			name:    "valid message with data part",
+			input:   []byte(`{"messageId":"msg-d","role":"user","parts":[{"data":{"key":"value"}}]}`),
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

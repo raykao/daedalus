@@ -27,8 +27,11 @@ func checkUniqueAgentNames(data []byte) error {
 		return fmt.Errorf("parsing registry: %w", err)
 	}
 	seen := make(map[string]bool)
-	for _, a := range reg.Agents {
-		name, _ := a.Card["name"].(string)
+	for i, a := range reg.Agents {
+		name, ok := a.Card["name"].(string)
+		if !ok || name == "" {
+			return fmt.Errorf("agent at index %d has missing or invalid name field", i)
+		}
 		if seen[name] {
 			return fmt.Errorf("duplicate agent name: %q", name)
 		}

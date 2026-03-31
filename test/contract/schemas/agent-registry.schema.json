@@ -2,20 +2,25 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-forge/schemas/agent-registry.schema.json",
   "type": "object",
-  "required": ["agents"],
+  "required": [
+    "agents"
+  ],
   "properties": {
     "agents": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["card", "queueSubject"],
+        "required": [
+          "card",
+          "queueSubject"
+        ],
         "properties": {
           "card": {
             "$ref": "agent-card.schema.json"
           },
           "queueSubject": {
             "type": "string",
-            "pattern": "^agent\\.tasks\\.[a-z][a-z0-9-]*$"
+            "pattern": "^agent\\.tasks\\.[a-z]([a-z0-9](-[a-z0-9]+)*)*$"
           },
           "runtime": {
             "type": "string"
