@@ -1,0 +1,93 @@
+{{- range .Values.workers }}
+{{- if .enabled }}
+{{- $worker := . }}
+{{- $root := $ }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-forge.workerFullname" (dict "root" $root "worker" $worker) }}
+  labels:
+    {{- include "agent-forge.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $worker.name }}
+spec:
+  replicas: {{ $worker.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds | default 35 }}
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: agent-registry
+          configMap:
+            name: {{ include "agent-forge.fullname" $root }}-registry
+
+      containers:
+        # Proxy sidecar: consumes from NATS JetStream and drives the agent via ACP
+        - name: proxy
+          {{- $proxyImage := $worker.proxy.image | default $root.Values.proxy.image }}
+          image: "{{ $proxyImage.repository }}:{{ $proxyImage.tag | default "latest" }}"
+          imagePullPolicy: {{ $proxyImage.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: ACP_ADDR
+              value: "localhost:{{ $worker.acpPort | default 3000 }}"
+            - name: NATS_URL
+              value: {{ include "agent-forge.natsURL" $root | quote }}
+            - name: NATS_STREAM
+              value: "AGENT_TASKS"
+            - name: NATS_SUBJECT
+              value: {{ $worker.queueSubject | quote }}
+            - name: WORK_DIR
+              value: "/workspace"
+            - name: LOG_LEVEL
+              value: {{ $root.Values.global.logLevel | default "info" | quote }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: agent-registry
+              mountPath: /etc/agent-forge
+              readOnly: true
+          {{- with $worker.proxy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pgrep proxy || exit 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pgrep proxy || exit 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+        # Agent container: the AI agent runtime that listens on ACP
+        - name: agent
+          image: "{{ $worker.image.repository }}:{{ $worker.image.tag | default "latest" }}"
+          imagePullPolicy: {{ $worker.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: acp
+              containerPort: {{ $worker.acpPort | default 3000 }}
+              protocol: TCP
+          {{- with $worker.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          {{- with $worker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

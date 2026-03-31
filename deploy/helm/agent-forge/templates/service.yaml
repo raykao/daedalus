@@ -1,0 +1,23 @@
+{{- range .Values.workers }}
+{{- if .enabled }}
+{{- $worker := . }}
+{{- $root := $ }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-forge.workerFullname" (dict "root" $root "worker" $worker) }}
+  labels:
+    {{- include "agent-forge.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $worker.name }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 4 }}
+  ports:
+    - name: acp
+      port: {{ $worker.acpPort | default 3000 }}
+      targetPort: acp
+      protocol: TCP
+{{- end }}
+{{- end }}
