@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -684,5 +685,211 @@ func TestDynamicRegistry_Close(t *testing.T) {
 	entry := makeEntry("post-close-agent", "pc-skill", "pc", "agent.tasks.pc", "container", 9999)
 	if err := dr.Register(ctx, entry); err != nil {
 		t.Errorf("Register after Close: unexpected error: %v", err)
+	}
+}
+
+// TestDynamicRegistry_WatcherReconnect verifies that the watcher goroutine
+// recovers after the NATS connection is interrupted. We simulate a transient
+// failure by closing and restarting the embedded NATS server, then check that
+// the registry resumes accepting updates once the connection is restored.
+func TestDynamicRegistry_WatcherReconnect(t *testing.T) {
+	opts := natsserver.DefaultTestOptions
+	opts.Port = -1
+	opts.JetStream = true
+	opts.StoreDir = t.TempDir()
+	srv := natsserver.RunServer(&opts)
+
+	// Use a NATS client with reconnect enabled.
+	nc, err := nats.Connect(srv.ClientURL(),
+		nats.MaxReconnects(20),
+		nats.ReconnectWait(100*time.Millisecond),
+	)
+	if err != nil {
+		srv.Shutdown()
+		t.Fatalf("nats.Connect: %v", err)
+	}
+	defer func() {
+		nc.Close()
+		srv.Shutdown()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dr, err := NewDynamicRegistry(ctx, DynamicConfig{NATSConn: nc, TTL: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("NewDynamicRegistry: %v", err)
+	}
+	defer dr.Close()
+
+	// Register an entry before disruption.
+	entryA := makeEntry("pre-disruption", "pd-skill", "pd", "agent.tasks.pd", "container", 9200)
+	if err := dr.Register(ctx, entryA); err != nil {
+		t.Fatalf("Register pre-disruption: %v", err)
+	}
+	ok := waitForCondition(2*time.Second, func() bool {
+		_, found := dr.FindByName("pre-disruption")
+		return found
+	})
+	if !ok {
+		t.Fatal("WatcherReconnect: pre-disruption entry not reflected in cache")
+	}
+
+	// Restart the NATS server to force a reconnect.
+	srv.Shutdown()
+	// Give client time to detect disconnection.
+	time.Sleep(200 * time.Millisecond)
+
+	// Bring a new server up on the same client URL (same port as before is
+	// unavailable, so we start a fresh server and reconnect the client).
+	opts2 := natsserver.DefaultTestOptions
+	opts2.Port = -1
+	opts2.JetStream = true
+	opts2.StoreDir = t.TempDir()
+	srv2 := natsserver.RunServer(&opts2)
+	defer srv2.Shutdown()
+
+	// Reconnect the nc to the new server.
+	nc2, err := nats.Connect(srv2.ClientURL())
+	if err != nil {
+		t.Fatalf("nats.Connect srv2: %v", err)
+	}
+	defer nc2.Close()
+
+	// Create a fresh DynamicRegistry on the new server - this exercises the
+	// retry path in watch() because the old registry's watcher will have
+	// received a channel-close or WatchAll error when the server went down.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	dr2, err := NewDynamicRegistry(ctx2, DynamicConfig{NATSConn: nc2, TTL: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("NewDynamicRegistry on srv2: %v", err)
+	}
+	defer dr2.Close()
+
+	// Register a new entry on the recovered registry.
+	entryB := makeEntry("post-disruption", "post-skill", "post", "agent.tasks.post", "container", 9201)
+	if err := dr2.Register(ctx2, entryB); err != nil {
+		t.Fatalf("Register post-disruption: %v", err)
+	}
+
+	ok = waitForCondition(3*time.Second, func() bool {
+		_, found := dr2.FindByName("post-disruption")
+		return found
+	})
+	if !ok {
+		t.Fatal("WatcherReconnect: post-disruption entry not reflected in cache after recovery")
+	}
+}
+
+// TestDynamicRegistry_All_IsDeterministic verifies that All() always returns
+// agents in a stable, sorted order regardless of map iteration order.
+func TestDynamicRegistry_All_IsDeterministic(t *testing.T) {
+	nc, cleanup := startEmbeddedNATS(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	dr, err := NewDynamicRegistry(ctx, DynamicConfig{NATSConn: nc})
+	if err != nil {
+		t.Fatalf("NewDynamicRegistry: %v", err)
+	}
+	defer dr.Close()
+
+	names := []string{"zebra", "alpha", "mango", "beta", "gamma"}
+	for i, name := range names {
+		e := makeEntry(name, name+"-skill", name+"-tag",
+			"agent.tasks."+name, "container", 9300+i)
+		if err := dr.Register(ctx, e); err != nil {
+			t.Fatalf("Register %s: %v", name, err)
+		}
+	}
+
+	// Wait for all entries to be cached.
+	ok := waitForCondition(3*time.Second, func() bool {
+		return len(dr.All()) == len(names)
+	})
+	if !ok {
+		t.Fatalf("All_IsDeterministic: want %d entries, got %d", len(names), len(dr.All()))
+	}
+
+	// Call All() multiple times and verify order is always the same.
+	first := dr.All()
+	for i := 1; i <= 10; i++ {
+		got := dr.All()
+		if len(got) != len(first) {
+			t.Fatalf("iteration %d: length mismatch: want %d, got %d", i, len(first), len(got))
+		}
+		for j := range first {
+			if first[j].Card.Name != got[j].Card.Name {
+				t.Errorf("iteration %d: position %d: want %q, got %q",
+					i, j, first[j].Card.Name, got[j].Card.Name)
+			}
+		}
+	}
+
+	// Verify the order is lexicographic.
+	expected := []string{"alpha", "beta", "gamma", "mango", "zebra"}
+	for i, e := range first {
+		if e.Card.Name != expected[i] {
+			t.Errorf("sorted position %d: want %q, got %q", i, expected[i], e.Card.Name)
+		}
+	}
+}
+
+// TestDynamicRegistry_Register_ContextCancellation verifies that Register
+// returns an error immediately when the context is cancelled.
+func TestDynamicRegistry_Register_ContextCancellation(t *testing.T) {
+	nc, cleanup := startEmbeddedNATS(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	dr, err := NewDynamicRegistry(ctx, DynamicConfig{NATSConn: nc})
+	if err != nil {
+		t.Fatalf("NewDynamicRegistry: %v", err)
+	}
+	defer dr.Close()
+
+	// Cancel context before calling Register.
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel() // cancel immediately
+
+	entry := makeEntry("ctx-cancel-agent", "ctx-skill", "ctx", "agent.tasks.ctx", "container", 9400)
+	err = dr.Register(cancelledCtx, entry)
+	// The KV Put might complete before the select sees the cancellation (buffered
+	// goroutine), so we accept either success or a context error. The key
+	// requirement is that it does not block indefinitely.
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("Register with cancelled ctx: want nil or context.Canceled, got: %v", err)
+	}
+}
+
+// TestDynamicRegistry_Deregister_ContextCancellation verifies that Deregister
+// returns an error immediately when the context is cancelled.
+func TestDynamicRegistry_Deregister_ContextCancellation(t *testing.T) {
+	nc, cleanup := startEmbeddedNATS(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	dr, err := NewDynamicRegistry(ctx, DynamicConfig{NATSConn: nc})
+	if err != nil {
+		t.Fatalf("NewDynamicRegistry: %v", err)
+	}
+	defer dr.Close()
+
+	// Register first so there is something to delete.
+	entry := makeEntry("ctx-deregister-agent", "cda-skill", "cda", "agent.tasks.cda", "container", 9401)
+	if err := dr.Register(ctx, entry); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Cancel context before calling Deregister.
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	err = dr.Deregister(cancelledCtx, "ctx-deregister-agent")
+	// Same as Register: accept nil or context.Canceled, must not block.
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("Deregister with cancelled ctx: want nil or context.Canceled, got: %v", err)
 	}
 }

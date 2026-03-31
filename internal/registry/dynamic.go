@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -58,7 +59,11 @@ func NewDynamicRegistry(ctx context.Context, cfg DynamicConfig) (*DynamicRegistr
 		TTL:    cfg.TTL,
 	})
 	if err != nil {
-		// Bucket may already exist - try to open it.
+		if !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+			return nil, fmt.Errorf("dynamic registry: create kv bucket %q: %w", AgentCardBucket, err)
+		}
+		cfg.Logger.Info("dynamic registry: kv bucket already exists, binding",
+			"bucket", AgentCardBucket)
 		kv, err = js.KeyValue(AgentCardBucket)
 		if err != nil {
 			return nil, fmt.Errorf("dynamic registry: open kv bucket %q: %w", AgentCardBucket, err)
@@ -107,31 +112,52 @@ func NewDynamicRegistry(ctx context.Context, cfg DynamicConfig) (*DynamicRegistr
 	return dr, nil
 }
 
-// watch subscribes to KV changes and updates the local cache.
-// Runs as a background goroutine started by NewDynamicRegistry.
+// watch retries runWatcher with exponential backoff until ctx is cancelled.
+// This handles transient NATS failures (e.g., NATS pod restarts in Kubernetes)
+// without silently freezing the registry cache.
 func (dr *DynamicRegistry) watch(ctx context.Context) {
-	// Bail out immediately if the context was already cancelled before we start.
-	select {
-	case <-ctx.Done():
-		return
-	default:
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		err := dr.runWatcher(ctx)
+		if err == nil {
+			// Clean shutdown via context cancellation.
+			return
+		}
+		dr.logger.Warn("dynamic registry: watcher stopped, retrying",
+			"err", err, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+		}
 	}
+}
 
+// runWatcher subscribes to KV changes and updates the local cache.
+// Returns nil on clean shutdown (ctx cancelled), or an error on failure.
+func (dr *DynamicRegistry) runWatcher(ctx context.Context) error {
 	watcher, err := dr.kv.WatchAll()
 	if err != nil {
-		dr.logger.Error("dynamic registry: watch: failed to start watcher", "err", err)
-		return
+		return fmt.Errorf("watch: failed to start watcher: %w", err)
 	}
 	defer watcher.Stop() //nolint:errcheck
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case entry, ok := <-watcher.Updates():
 			if !ok {
-				dr.logger.Info("dynamic registry: watch: updates channel closed")
-				return
+				return fmt.Errorf("watch: updates channel closed")
 			}
 			// nil entry signals that the initial delivery of existing keys is done.
 			if entry == nil {
@@ -164,23 +190,50 @@ func (dr *DynamicRegistry) watch(ctx context.Context) {
 // Register adds or updates an agent entry in the KV store.
 // Agents call this on startup and periodically as a heartbeat.
 // The bucket TTL handles automatic expiry if the agent stops re-registering.
+// The call respects ctx cancellation: if ctx is cancelled while the KV Put
+// is in flight, Register returns immediately with ctx.Err().
 func (dr *DynamicRegistry) Register(ctx context.Context, entry AgentEntry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("dynamic registry: marshal entry %q: %w", entry.Card.Name, err)
 	}
-	if _, err := dr.kv.Put(entry.Card.Name, data); err != nil {
-		return fmt.Errorf("dynamic registry: put entry %q: %w", entry.Card.Name, err)
+	type kvResult struct {
+		rev uint64
+		err error
 	}
-	return nil
+	ch := make(chan kvResult, 1)
+	go func() {
+		rev, err := dr.kv.Put(entry.Card.Name, data)
+		ch <- kvResult{rev, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("dynamic registry: register %q: %w", entry.Card.Name, ctx.Err())
+	case r := <-ch:
+		if r.err != nil {
+			return fmt.Errorf("dynamic registry: register %q: %w", entry.Card.Name, r.err)
+		}
+		return nil
+	}
 }
 
 // Deregister removes an agent from the KV store.
+// The call respects ctx cancellation: if ctx is cancelled while the KV Delete
+// is in flight, Deregister returns immediately with ctx.Err().
 func (dr *DynamicRegistry) Deregister(ctx context.Context, name string) error {
-	if err := dr.kv.Delete(name); err != nil {
-		return fmt.Errorf("dynamic registry: delete entry %q: %w", name, err)
+	ch := make(chan error, 1)
+	go func() {
+		ch <- dr.kv.Delete(name)
+	}()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("dynamic registry: deregister %q: %w", name, ctx.Err())
+	case err := <-ch:
+		if err != nil {
+			return fmt.Errorf("dynamic registry: delete entry %q: %w", name, err)
+		}
+		return nil
 	}
-	return nil
 }
 
 // Close stops the background watcher and releases resources.
@@ -274,6 +327,7 @@ func (dr *DynamicRegistry) RouteByScore(req RoutingRequest) (*AgentEntry, error)
 
 // All returns all known agents (dynamic + fallback, deduplicated by name).
 // Dynamic entries take precedence over fallback entries with the same name.
+// The result is sorted by agent name for deterministic ordering.
 func (dr *DynamicRegistry) All() []AgentEntry {
 	dr.mu.RLock()
 	seen := make(map[string]bool, len(dr.agents))
@@ -291,5 +345,8 @@ func (dr *DynamicRegistry) All() []AgentEntry {
 			}
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Card.Name < result[j].Card.Name
+	})
 	return result
 }
