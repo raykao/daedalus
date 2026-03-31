@@ -133,6 +133,17 @@ Dispatch a compound task to multiple agents in parallel. The orchestrator receiv
 ### 2.2 Dependency-ordered execution (implement, then test, then docs)
 ### 2.3 Result merging and PR creation
 
+Collect artifacts from completed worker tasks, merge their branches into a single target branch, and create a GitHub PR. Handle merge conflicts between parallel workers (same-file detection, sequential fallback).
+
+**Deliverables:**
+- `Merger` in `internal/merge/merger.go` — sequential merge of worker branches in execution order (respects scheduler dependency ordering)
+- `GitOps` interface + `ExecGit` implementation in `internal/merge/git.go` — testable git operations layer
+- `DetectOverlaps` in `internal/merge/conflicts.go` — pre-merge file overlap detection (advisory warnings)
+- `PRCreator` interface + `GHCLIPRCreator` in `internal/merge/pr.go` — PR creation via gh CLI
+- Conflict handling: on merge conflict, abort and skip the branch, continue merging remaining branches
+- Auto-generated PR bodies with merged/skipped/conflict summaries
+- Unit tests with mock git ops + integration tests with real git repos (33 tests, 69.5% coverage)
+
 ### 2.4 Dynamic AgentCard registry (NATS events)
 
 Replace the static JSON registry with a live NATS JetStream KV store. Agents self-register on startup and renew via heartbeat. The orchestrator watches for changes in real time.
@@ -152,9 +163,9 @@ Replace the static JSON registry with a live NATS JetStream KV store. Agents sel
 | Task splitting (2.1) | Structured input (`[]TaskSpec`) | Deterministic, testable, no LLM dependency in orchestrator hot path. The orchestrator receives explicit skill/prompt pairs. LLM-based compound prompt analysis deferred to v2 as an optional pre-processing step. |
 | Dynamic registry transport (2.4) | NATS JetStream KV store | Purpose-built for this use case: key=agent name, value=AgentCard JSON. Built-in Watch API for real-time updates eliminates custom pub/sub. TTL support provides heartbeat expiry without custom protocol. The existing static registry becomes the bootstrap/fallback layer. |
 | Registry interface (2.4) | Same interface, new implementation | `DynamicRegistry` implements the same lookup methods as the static `Registry`. Callers (orchestrator, proxy) don't need to know whether discovery is static or dynamic. This is a clean extension, not a rewrite. |
-| DAG representation (2.2) | TBD | Will be decided when Batch 2 starts. Candidates: adjacency list (simple), or topological sort with in-degree tracking. |
-| Merge strategy (2.3) | TBD | Will be decided when Batch 3 starts. Candidates: octopus merge, sequential cherry-pick, or rebase-based. |
-| PR creation tool (2.3) | TBD | `gh` CLI vs Go GitHub client. |
+| DAG representation (2.2) | Adjacency list + in-degree map | Simple, well-understood, O(V+E) topological sort. Cycle detection via 3-color DFS. No external graph library needed. |
+| Merge strategy (2.3) | Sequential merge in execution order | Merges each worker branch one at a time via `git merge --no-ff`, respecting dependency order from the scheduler. Simpler than octopus merge, preserves per-branch merge commits for traceability, naturally handles file overlaps. On conflict: abort and skip, continue with remaining branches. |
+| PR creation tool (2.3) | `gh` CLI | Consistent with codebase pattern of shelling out to CLI tools. Avoids heavy `go-github` dependency for a single operation. Interface-based (`PRCreator`) allows swapping implementations later. |
 
 ---
 
