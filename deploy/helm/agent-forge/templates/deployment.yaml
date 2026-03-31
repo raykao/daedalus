@@ -47,7 +47,7 @@ spec:
             - name: NATS_URL
               value: {{ include "agent-forge.natsURL" $root | quote }}
             - name: NATS_STREAM
-              value: "AGENT_TASKS"
+              value: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
             - name: NATS_SUBJECT
               value: {{ $worker.queueSubject | quote }}
             - name: WORK_DIR

@@ -15,7 +15,8 @@ spec:
   jobTargetRef:
     # activeDeadlineSeconds caps the total runtime of each Job pod (task timeout).
     activeDeadlineSeconds: {{ $root.Values.keda.activeDeadlineSeconds | default 600 }}
-    # backoffLimit: 0 means failed tasks are not retried; the proxy nacks the message instead.
+    # backoffLimit controls Job retry count before marking failed.
+    # Default 2 retries; set to 0 for no retries (proxy nacks the message instead).
     backoffLimit: {{ $root.Values.keda.backoffLimit | default 2 }}
     template:
       metadata:
