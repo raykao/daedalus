@@ -89,8 +89,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create handler and shutdown manager
+	// Create handler. Mark it as already initialized so Handle does not call
+	// Initialize again on the first message - we already initialized above.
 	handler := proxy.NewHandler(acpClient, publisher, *workDir, logger)
+	handler.SetInitialized()
+
+	// Create handler and shutdown manager
 	sm := proxy.NewShutdownManager(handler, gracePeriod, logger)
 
 	// Run consumer in a goroutine using the shutdown manager's work context for

@@ -331,3 +331,22 @@ func noopLogger() *slog.Logger {
 type noopWriter struct{}
 
 func (noopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// TestShutdownRejectsNewMessages verifies that Handle returns an error
+// immediately when shutdown is in progress, preventing WaitGroup reuse panics.
+func TestShutdownRejectsNewMessages(t *testing.T) {
+	handler := &Handler{
+		logger:   noopLogger(),
+		sessions: make(map[string]struct{}),
+	}
+
+	// Simulate shutdown in progress by setting the atomic flag directly.
+	// This is the same flag that ShutdownManager.Shutdown sets before waiting.
+	handler.shuttingDown.Store(true)
+
+	msgData := buildTestMessage("task-rejected")
+	err := handler.Handle(context.Background(), msgData)
+	if err == nil {
+		t.Fatal("expected error when shutdown in progress, got nil")
+	}
+}

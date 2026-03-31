@@ -81,6 +81,10 @@ func (sm *ShutdownManager) Shutdown(ctx context.Context) error {
 		"phase", "wait_inflight",
 	)
 
+	// Set shuttingDown before starting the WaitGroup goroutine. This prevents
+	// new Handle calls from calling wg.Add after Wait returns, which would panic.
+	sm.handler.shuttingDown.Store(true)
+
 	// Phase 2: wait for all in-flight Handle calls within the grace period.
 	graceCtx, graceCancel := context.WithTimeout(ctx, sm.gracePeriod)
 	defer graceCancel()
@@ -114,11 +118,21 @@ func (sm *ShutdownManager) Shutdown(ctx context.Context) error {
 	sm.handler.CancelActiveSessions(ctx)
 
 	// Phase 4: give a brief window for Handle goroutines to finish after cancel.
+	// A new channel is used here rather than reusing `done` from phase 2: the
+	// phase-2 goroutine may have already closed `done` between when graceCtx
+	// fired and now, which would cause the select to match immediately and skip
+	// the exit buffer window entirely.
+	cancelDone := make(chan struct{})
+	go func() {
+		sm.handler.wg.Wait()
+		close(cancelDone)
+	}()
+
 	exitTimer := time.NewTimer(forceExitBuffer)
 	defer exitTimer.Stop()
 
 	select {
-	case <-done:
+	case <-cancelDone:
 		sm.logger.Info("proxy: shutdown complete after session cancellation")
 		return nil
 	case <-exitTimer.C:

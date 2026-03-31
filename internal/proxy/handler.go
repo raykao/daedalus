@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/raykao/agent-forge/internal/a2a"
@@ -22,8 +23,17 @@ type Handler struct {
 	publisher *queue.Publisher
 	workDir   string
 	logger    *slog.Logger
-	// Track initialized state
-	initialized bool
+
+	// shuttingDown is set to true before Shutdown waits on the WaitGroup.
+	// Handle checks this flag before calling wg.Add to avoid a panic on
+	// WaitGroup reuse after Wait returns (per sync.WaitGroup documentation).
+	shuttingDown atomic.Bool
+
+	// initOnce ensures Initialize is called at most once. The first Handle
+	// call's context is used for the RPC; subsequent calls use the stored error.
+	// This is acceptable since Initialize is a one-time protocol handshake.
+	initOnce sync.Once
+	initErr  error
 
 	// mu protects the sessions map.
 	mu       sync.Mutex
@@ -47,9 +57,21 @@ func NewHandler(acpClient *acp.Client, publisher *queue.Publisher, workDir strin
 	}
 }
 
+// SetInitialized marks the handler as already initialized so that Handle does
+// not call Initialize again. Call this after a successful Initialize in main.
+func (h *Handler) SetInitialized() {
+	h.initOnce.Do(func() {}) // consume the Once with no error
+}
+
 // Handle processes a single A2A SendMessageRequest from the queue.
 // It registers itself with the WaitGroup for graceful shutdown tracking.
 func (h *Handler) Handle(ctx context.Context, data []byte) error {
+	// Reject new messages if shutdown is in progress. This must happen before
+	// wg.Add to prevent a panic: calling Add after Wait returns is undefined
+	// behaviour per the sync.WaitGroup documentation.
+	if h.shuttingDown.Load() {
+		return fmt.Errorf("proxy: rejecting message, shutdown in progress")
+	}
 	h.wg.Add(1)
 	defer h.wg.Done()
 
@@ -74,12 +96,13 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		h.logger.Warn("proxy: failed to publish working status", "taskId", taskID, "err", err)
 	}
 
-	// Initialize ACP once
-	if !h.initialized {
-		if _, err := h.acpClient.Initialize(ctx); err != nil {
-			return h.fail(ctx, taskID, fmt.Errorf("proxy: acp initialize: %w", err))
-		}
-		h.initialized = true
+	// Initialize ACP exactly once. The first Handle call's context is used for
+	// the RPC; later calls observe the stored error. Safe for concurrent calls.
+	h.initOnce.Do(func() {
+		_, h.initErr = h.acpClient.Initialize(ctx)
+	})
+	if h.initErr != nil {
+		return h.fail(ctx, taskID, fmt.Errorf("proxy: acp initialize: %w", h.initErr))
 	}
 
 	// Create a new ACP session
