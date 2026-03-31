@@ -116,7 +116,9 @@ func NewDynamicRegistry(ctx context.Context, cfg DynamicConfig) (*DynamicRegistr
 // This handles transient NATS failures (e.g., NATS pod restarts in Kubernetes)
 // without silently freezing the registry cache.
 func (dr *DynamicRegistry) watch(ctx context.Context) {
-	backoff := 1 * time.Second
+	const initialBackoff = 1 * time.Second
+	const resetThreshold = 60 * time.Second
+	backoff := initialBackoff
 	maxBackoff := 30 * time.Second
 	for {
 		select {
@@ -124,10 +126,15 @@ func (dr *DynamicRegistry) watch(ctx context.Context) {
 			return
 		default:
 		}
+		start := time.Now()
 		err := dr.runWatcher(ctx)
 		if err == nil {
 			// Clean shutdown via context cancellation.
 			return
+		}
+		// Reset backoff if the watcher was stable for a meaningful period.
+		if time.Since(start) >= resetThreshold {
+			backoff = initialBackoff
 		}
 		dr.logger.Warn("dynamic registry: watcher stopped, retrying",
 			"err", err, "backoff", backoff)
