@@ -3,7 +3,7 @@
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY test/mock-acp-server/ test/mock-acp-server/
@@ -15,7 +15,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 2: minimal runtime image.
 FROM alpine:3.20
 
-RUN addgroup -S acp && adduser -S acp -G acp
+RUN apk add --no-cache netcat-openbsd && \
+    addgroup -S acp && adduser -S acp -G acp
 USER acp
 
 COPY --from=builder /mock-acp-server /usr/local/bin/mock-acp-server
