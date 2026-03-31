@@ -70,9 +70,14 @@ Call with (dict "root" . "worker" $worker).
 {{- end }}
 
 {{/*
-Resolve the NATS URL: use nats.url value regardless of whether the subchart is enabled.
-Callers may override nats.url to point at an external broker.
+Resolve the NATS URL dynamically.
+When nats.enabled=true, compute the service name from the release name (bitnami/nats creates <release-name>-nats).
+When nats.enabled=false, fall back to nats.url for external broker configuration.
 */}}
 {{- define "agent-forge.natsURL" -}}
+{{- if .Values.nats.enabled }}
+{{- printf "nats://%s-nats:4222" .Release.Name }}
+{{- else }}
 {{- .Values.nats.url }}
+{{- end }}
 {{- end }}

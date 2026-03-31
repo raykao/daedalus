@@ -2,13 +2,15 @@
 global:
   logLevel: info
 
+# Image pull secrets for private registries (list of secret name references)
+imagePullSecrets: []
+
 # NATS JetStream message broker
 nats:
   enabled: true
-  # URL used by proxy sidecars to reach NATS.
-  # When nats.enabled=true this points to the subchart service name.
-  # Override with an external URL when nats.enabled=false.
-  url: "nats://agent-forge-nats:4222"
+  # URL for external NATS (only used when nats.enabled=false).
+  # When nats.enabled=true the URL is computed from the release name: nats://<release-name>-nats:4222
+  url: "nats://external-nats:4222"
   # Bitnami NATS subchart values (only used when nats.enabled=true)
   auth:
     enabled: false

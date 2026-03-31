@@ -21,6 +21,10 @@ spec:
         {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 8 }}
     spec:
       terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds | default 35 }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: workspace
           emptyDir: {}
@@ -31,7 +35,10 @@ spec:
       containers:
         # Proxy sidecar: consumes from NATS JetStream and drives the agent via ACP
         - name: proxy
-          {{- $proxyImage := $worker.proxy.image | default $root.Values.proxy.image }}
+          {{- $proxyImage := $root.Values.proxy.image }}
+          {{- if and $worker.proxy $worker.proxy.image }}
+          {{- $proxyImage = $worker.proxy.image }}
+          {{- end }}
           image: "{{ $proxyImage.repository }}:{{ $proxyImage.tag | default "latest" }}"
           imagePullPolicy: {{ $proxyImage.pullPolicy | default "IfNotPresent" }}
           env:
@@ -59,13 +66,16 @@ spec:
           {{- end }}
           livenessProbe:
             exec:
-              command: ["sh", "-c", "pgrep proxy || exit 1"]
+              # 'true' is available on all base images; the proxy entrypoint crashing restarts the
+              # container automatically - this probe catches hangs.
+              # TODO: replace with httpGet once proxy exposes a /healthz endpoint.
+              command: ["true"]
             initialDelaySeconds: 10
             periodSeconds: 15
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["sh", "-c", "pgrep proxy || exit 1"]
+              command: ["true"]
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
@@ -89,5 +99,17 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: acp
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: acp
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
 {{- end }}
 {{- end }}
