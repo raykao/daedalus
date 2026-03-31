@@ -1,0 +1,26 @@
+# Multi-stage build for the mock ACP server.
+# Stage 1: build the binary.
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+
+COPY test/mock-acp-server/ test/mock-acp-server/
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /mock-acp-server \
+    ./test/mock-acp-server/
+
+# Stage 2: minimal runtime image.
+FROM alpine:3.20
+
+RUN addgroup -S acp && adduser -S acp -G acp
+USER acp
+
+COPY --from=builder /mock-acp-server /usr/local/bin/mock-acp-server
+
+EXPOSE 3000
+
+ENTRYPOINT ["mock-acp-server"]
+CMD ["--port", "3000"]
