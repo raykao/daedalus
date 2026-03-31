@@ -1,0 +1,31 @@
+Agent Forge has been deployed!
+
+Workers deployed:
+{{- range .Values.workers }}
+{{- if .enabled }}
+  - {{ .name }} (replicas: {{ .replicas | default 1 }}, subject: {{ .queueSubject }})
+{{- end }}
+{{- end }}
+
+{{- if .Values.nats.enabled }}
+
+NATS JetStream is running as a subchart.
+Internal URL: {{ .Values.nats.url }}
+{{- else }}
+
+NATS is managed externally.
+Configure your NATS URL via: --set nats.url=<your-nats-url>
+Current URL: {{ .Values.nats.url }}
+{{- end }}
+
+To check worker status:
+  kubectl get deployments -l app.kubernetes.io/instance={{ .Release.Name }}
+
+To view proxy logs for a worker (e.g., copilot):
+  kubectl logs -l app.kubernetes.io/component=copilot -c proxy --follow
+
+To scale a worker:
+  kubectl scale deployment/{{ include "agent-forge.fullname" . }}-copilot --replicas=3
+
+For KEDA-based autoscaling (Phase 1.2), add ScaledObject resources referencing
+the NATS JetStream consumer lag for each worker's queue subject.

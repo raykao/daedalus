@@ -1,0 +1,23 @@
+# Patterns to ignore when building packages.
+.DS_Store
+.git
+.gitignore
+.gitmodules
+.helmignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+# Go toolchain
+vendor/
+# Test files
+*_test.go
+# Editor directories and files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
