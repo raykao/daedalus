@@ -12,6 +12,7 @@ import (
 	"github.com/raykao/agent-forge/internal/acp"
 	"github.com/raykao/agent-forge/internal/proxy"
 	"github.com/raykao/agent-forge/internal/queue"
+	"github.com/raykao/agent-forge/internal/telemetry"
 )
 
 func main() {
@@ -23,6 +24,8 @@ func main() {
 	workDir := flag.String("work-dir", envOrDefault("WORK_DIR", "/workspace"), "Agent session working directory")
 	logLevel := flag.String("log-level", envOrDefault("LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
 	gracePeriodStr := flag.String("grace-period", envOrDefault("GRACE_PERIOD", "30s"), "Graceful shutdown grace period (e.g. 30s)")
+	otelExporter := flag.String("otel-exporter", envOrDefault("OTEL_EXPORTER", "noop"), "OTel exporter type (otlp, stdout, noop)")
+	otelEndpoint := flag.String("otel-endpoint", envOrDefault("OTEL_ENDPOINT", ""), "OTel OTLP collector endpoint")
 	flag.Parse()
 
 	gracePeriod, err := time.ParseDuration(*gracePeriodStr)
@@ -31,8 +34,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := buildLogger(*logLevel)
+	logger := telemetry.NewLogger(parseLogLevel(*logLevel))
 	slog.SetDefault(logger)
+
+	// Initialize telemetry provider
+	telProvider, err := telemetry.NewProvider(context.Background(), telemetry.Config{
+		ServiceName:    "agent-forge-proxy",
+		ServiceVersion: "0.1.0",
+		ExporterType:   *otelExporter,
+		OTLPEndpoint:   *otelEndpoint,
+	})
+	if err != nil {
+		logger.Error("failed to create telemetry provider", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := telProvider.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("telemetry shutdown error", "err", err)
+		}
+	}()
 
 	logger.Info("agent-forge proxy starting",
 		"acp_addr", *acpAddr,
@@ -134,17 +156,15 @@ func envOrDefault(key, defaultVal string) string {
 	return defaultVal
 }
 
-func buildLogger(level string) *slog.Logger {
-	var lvl slog.Level
+func parseLogLevel(level string) slog.Level {
 	switch level {
 	case "debug":
-		lvl = slog.LevelDebug
+		return slog.LevelDebug
 	case "warn":
-		lvl = slog.LevelWarn
+		return slog.LevelWarn
 	case "error":
-		lvl = slog.LevelError
+		return slog.LevelError
 	default:
-		lvl = slog.LevelInfo
+		return slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 }
