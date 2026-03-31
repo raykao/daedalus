@@ -28,7 +28,10 @@ func (c natsHeaderCarrier) Keys() []string {
 	return keys
 }
 
-var natsProp = propagation.TraceContext{}
+var natsProp = propagation.NewCompositeTextMapPropagator(
+	propagation.TraceContext{},
+	propagation.Baggage{},
+)
 
 // InjectNATSHeaders injects W3C trace context from ctx into NATS message headers.
 // If headers is nil, a new nats.Header is allocated.
