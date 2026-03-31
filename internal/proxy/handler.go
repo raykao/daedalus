@@ -66,13 +66,16 @@ func (h *Handler) SetInitialized() {
 // Handle processes a single A2A SendMessageRequest from the queue.
 // It registers itself with the WaitGroup for graceful shutdown tracking.
 func (h *Handler) Handle(ctx context.Context, data []byte) error {
-	// Reject new messages if shutdown is in progress. This must happen before
-	// wg.Add to prevent a panic: calling Add after Wait returns is undefined
-	// behaviour per the sync.WaitGroup documentation.
+	// Atomically check shutdown flag and register with WaitGroup.
+	// The mutex prevents a race where wg.Add(1) executes after wg.Wait()
+	// returns in Shutdown, which would violate WaitGroup semantics.
+	h.mu.Lock()
 	if h.shuttingDown.Load() {
+		h.mu.Unlock()
 		return fmt.Errorf("proxy: rejecting message, shutdown in progress")
 	}
 	h.wg.Add(1)
+	h.mu.Unlock()
 	defer h.wg.Done()
 
 	var req a2a.SendMessageRequest

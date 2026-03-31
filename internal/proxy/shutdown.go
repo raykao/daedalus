@@ -81,9 +81,11 @@ func (sm *ShutdownManager) Shutdown(ctx context.Context) error {
 		"phase", "wait_inflight",
 	)
 
-	// Set shuttingDown before starting the WaitGroup goroutine. This prevents
-	// new Handle calls from calling wg.Add after Wait returns, which would panic.
+	// Phase 1: reject new Handle calls atomically with respect to wg.Add.
+	// Holding mu ensures no Handle call can slip wg.Add(1) after wg.Wait returns.
+	sm.handler.mu.Lock()
 	sm.handler.shuttingDown.Store(true)
+	sm.handler.mu.Unlock()
 
 	// Phase 2: wait for all in-flight Handle calls within the grace period.
 	graceCtx, graceCancel := context.WithTimeout(ctx, sm.gracePeriod)
