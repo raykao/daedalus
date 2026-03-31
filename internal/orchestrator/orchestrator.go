@@ -11,17 +11,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raykao/agent-forge/internal/a2a"
 	"github.com/raykao/agent-forge/internal/dispatch"
 )
 
 // Orchestrator coordinates fan-out dispatch of multiple tasks concurrently.
 type Orchestrator struct {
-	dispatcher *dispatch.Dispatcher
+	dispatcher dispatch.TaskDispatcher
 	logger     *slog.Logger
 }
 
 // New creates an Orchestrator with the given dispatcher and logger.
-func New(dispatcher *dispatch.Dispatcher, logger *slog.Logger) *Orchestrator {
+func New(dispatcher dispatch.TaskDispatcher, logger *slog.Logger) *Orchestrator {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -84,7 +85,7 @@ func (o *Orchestrator) FanOut(ctx context.Context, req FanOutRequest) (*FanOutRe
 			if err != nil {
 				tr.TaskID = s.ID // may be empty; that is fine
 				tr.Error = err
-				tr.Status = "failed"
+				tr.Status = a2a.TaskStateFailed
 				o.logger.Error("orchestrator: dispatch failed",
 					"contextID", req.ContextID,
 					"skillID", s.SkillID,
@@ -92,7 +93,7 @@ func (o *Orchestrator) FanOut(ctx context.Context, req FanOutRequest) (*FanOutRe
 				)
 			} else {
 				tr.TaskID = taskID
-				tr.Status = "submitted"
+				tr.Status = a2a.TaskStateSubmitted
 				o.logger.Info("orchestrator: task dispatched",
 					"contextID", req.ContextID,
 					"taskID", taskID,

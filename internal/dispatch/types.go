@@ -11,5 +11,5 @@ type TaskSpec struct {
 	Tags     []string       // Optional tags for routing refinement
 	Prompt   string         // The actual prompt to send to the agent
 	Metadata map[string]any // Optional metadata passed through to A2A Message
-	Priority int            // 0 = default, higher = higher priority
+	Priority int            // Reserved for future use; currently ignored by Dispatch
 }

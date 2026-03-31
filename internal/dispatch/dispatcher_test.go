@@ -15,39 +15,9 @@ import (
 // Test helpers
 // ---------------------------------------------------------------------------
 
-// mockRegistry wraps a map of skillID -> AgentEntry so tests can control routing.
-type mockRegistry struct {
-	entries map[string]*registry.AgentEntry
-}
-
-func newMockRegistry(entries map[string]*registry.AgentEntry) *registry.Registry {
-	// Build a minimal JSON registry file and load it.
-	type regFile struct {
-		Agents []registry.AgentEntry `json:"agents"`
-	}
-	var agents []registry.AgentEntry
-	for _, e := range entries {
-		agents = append(agents, *e)
-	}
-	data, _ := json.Marshal(regFile{Agents: agents})
-	reg, err := registry.LoadFromReader(jsonReader(data))
-	if err != nil {
-		panic("mockRegistry: LoadFromReader: " + err.Error())
-	}
-	return reg
-}
-
-type jsonReader []byte
-
-func (b jsonReader) Read(p []byte) (int, error) {
-	return copy(p, b), nil
-}
-
-func (b jsonReader) ReadAll() ([]byte, error) { return b, nil }
-
-// Implement io.Reader for jsonReader
+// newJSONReader wraps a byte slice as an io.Reader for registry.LoadFromReader.
 func newJSONReader(data []byte) *jsonReaderImpl {
-	return &jsonReaderImpl{data: data, pos: 0}
+	return &jsonReaderImpl{data: data}
 }
 
 type jsonReaderImpl struct {
@@ -143,7 +113,7 @@ func TestDispatch_SuccessRoutesToCorrectSubject(t *testing.T) {
 	})
 
 	pub := &mockPublisher{}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	taskID, subject, err := d.Dispatch(context.Background(), dispatch.TaskSpec{
 		SkillID: "summarize",
@@ -175,7 +145,7 @@ func TestDispatch_UnknownSkillReturnsError(t *testing.T) {
 	})
 
 	pub := &mockPublisher{}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	_, _, err := d.Dispatch(context.Background(), dispatch.TaskSpec{
 		SkillID: "nonexistent-skill",
@@ -193,7 +163,7 @@ func TestDispatch_GeneratesTaskIDWhenEmpty(t *testing.T) {
 	})
 
 	pub := &mockPublisher{}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	spec := dispatch.TaskSpec{
 		// ID intentionally left empty
@@ -220,7 +190,7 @@ func TestDispatch_UsesProvidedTaskID(t *testing.T) {
 	})
 
 	pub := &mockPublisher{}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	spec := dispatch.TaskSpec{
 		ID:      "my-explicit-id",
@@ -243,7 +213,7 @@ func TestDispatch_BuildsCorrectA2AMessage(t *testing.T) {
 	})
 
 	pub := &mockPublisher{}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	spec := dispatch.TaskSpec{
 		ID:      "task-xyz",
@@ -293,7 +263,7 @@ func TestDispatch_PublishFailureReturnsError(t *testing.T) {
 	})
 
 	pub := &mockPublisher{returnErr: context.DeadlineExceeded}
-	d := newTestDispatcher(pub, reg)
+	d := dispatch.NewDispatcher(pub, reg, nil)
 
 	_, _, err := d.Dispatch(context.Background(), dispatch.TaskSpec{
 		SkillID: "summarize",
@@ -303,55 +273,4 @@ func TestDispatch_PublishFailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected publish error, got nil")
 	}
-}
-
-// newTestDispatcher creates a Dispatcher wired to the mockPublisher.
-// Because queue.Publisher is a concrete struct (not an interface), we test
-// Dispatcher behaviour using a thin adapter - we verify the mock publisher
-// is called with the right parameters independently.
-//
-// For full integration coverage see dispatcher_integration_test.go; this file
-// tests the routing and message-building logic using the mock.
-func newTestDispatcher(pub *mockPublisher, reg *registry.Registry) *dispatcherAdapter {
-	return &dispatcherAdapter{pub: pub, reg: reg}
-}
-
-// dispatcherAdapter duplicates just enough of Dispatcher internals to let
-// us inject a mockPublisher (queue.Publisher is a concrete struct, not an interface).
-type dispatcherAdapter struct {
-	pub *mockPublisher
-	reg *registry.Registry
-}
-
-func (a *dispatcherAdapter) Dispatch(ctx context.Context, spec dispatch.TaskSpec, contextID string) (taskID string, subject string, err error) {
-	// Replicate Dispatcher.Dispatch logic using the mock publisher.
-	taskID = spec.ID
-	if taskID == "" {
-		// Generate a simple deterministic-enough ID for tests.
-		taskID = contextID + "-generated"
-	}
-
-	entry, routeErr := a.reg.RouteByScore(registry.RoutingRequest{
-		SkillID: spec.SkillID,
-		Tags:    spec.Tags,
-	})
-	if routeErr != nil {
-		return "", "", routeErr
-	}
-	subject = entry.QueueSubject
-
-	req := a2a.SendMessageRequest{
-		Message: a2a.Message{
-			MessageID: taskID,
-			TaskID:    taskID,
-			ContextID: contextID,
-			Role:      "user",
-			Parts:     []a2a.Part{{Text: spec.Prompt}},
-			Metadata:  spec.Metadata,
-		},
-	}
-	if pubErr := a.pub.PublishJSON(ctx, subject, req); pubErr != nil {
-		return "", "", pubErr
-	}
-	return taskID, subject, nil
 }

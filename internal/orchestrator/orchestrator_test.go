@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raykao/agent-forge/internal/a2a"
 	"github.com/raykao/agent-forge/internal/dispatch"
 	"github.com/raykao/agent-forge/internal/orchestrator"
 )
@@ -23,10 +24,6 @@ type mockDispatchEntry struct {
 	delay   time.Duration
 }
 
-// mockDispatcher is a test double for dispatch.Dispatcher.
-// We can't embed Dispatcher directly (it holds a concrete publisher pointer),
-// so we wrap the Orchestrator constructor call to accept an interface.
-// To do that cleanly, we introduce a DispatcherFunc shim.
 type mockDispatcher struct {
 	mu      sync.Mutex
 	calls   []dispatchCall
@@ -82,97 +79,15 @@ func (m *mockDispatcher) callCount() int {
 }
 
 // ---------------------------------------------------------------------------
-// orchestratorWithMock builds an Orchestrator that uses a mockDispatcher.
-// We patch the Orchestrator through a thin function-adapter: since the spec
-// calls for `New(dispatcher *dispatch.Dispatcher, ...)`, and we can't pass a
-// mock, we test through a parallel constructor that accepts a dispatchFunc.
-//
-// The real Orchestrator is tested end-to-end in integration tests that wire
-// a real Dispatcher with an embedded NATS server.  Here we test the
-// orchestration logic (fan-out, context cancellation, etc.) in isolation.
+// funcDispatcher wraps an inline function as a TaskDispatcher.
 // ---------------------------------------------------------------------------
 
-// Orchestrator under test accepts a dispatchFunc instead of a concrete Dispatcher
-// so the fan-out logic can be exercised without a real NATS connection.
-//
-// We expose a parallel testable version of the Orchestrator via newTestOrchestrator.
-
-type dispatchFunc func(ctx context.Context, spec dispatch.TaskSpec, contextID string) (string, string, error)
-
-// testOrchestrator mirrors orchestrator.Orchestrator but accepts a dispatchFunc.
-// This lets us test the fan-out coordination logic independently.
-type testOrchestrator struct {
-	dispatchFn dispatchFunc
+type funcDispatcher struct {
+	fn func(ctx context.Context, spec dispatch.TaskSpec, contextID string) (string, string, error)
 }
 
-func newTestOrchestrator(fn dispatchFunc) *testOrchestrator {
-	return &testOrchestrator{dispatchFn: fn}
-}
-
-// fanOut mirrors orchestrator.Orchestrator.FanOut for testing purposes.
-func (o *testOrchestrator) fanOut(ctx context.Context, req orchestrator.FanOutRequest) (*orchestrator.FanOutResult, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-
-	contextID := req.ContextID
-	if contextID == "" {
-		contextID = "ctx-generated"
-	}
-
-	result := &orchestrator.FanOutResult{
-		ContextID: contextID,
-		Tasks:     make([]orchestrator.TaskResult, len(req.Tasks)),
-		StartedAt: time.Now().UTC(),
-	}
-
-	type indexed struct {
-		idx int
-		tr  orchestrator.TaskResult
-	}
-
-	var wg sync.WaitGroup
-	ch := make(chan indexed, len(req.Tasks))
-
-	for i, spec := range req.Tasks {
-		wg.Add(1)
-		go func(idx int, s dispatch.TaskSpec) {
-			defer wg.Done()
-			tr := orchestrator.TaskResult{
-				SkillID:      s.SkillID,
-				DispatchedAt: time.Now().UTC(),
-			}
-			taskID, _, err := o.dispatchFn(ctx, s, contextID)
-			tr.CompletedAt = time.Now().UTC()
-			if err != nil {
-				tr.TaskID = s.ID
-				tr.Error = err
-				tr.Status = "failed"
-			} else {
-				tr.TaskID = taskID
-				tr.Status = "submitted"
-			}
-			ch <- indexed{idx: idx, tr: tr}
-		}(i, spec)
-	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		<-done
-	}
-	close(ch)
-	for r := range ch {
-		result.Tasks[r.idx] = r.tr
-	}
-	result.CompletedAt = time.Now().UTC()
-
-	if ctx.Err() != nil {
-		return result, fmt.Errorf("orchestrator: fan-out interrupted: %w", ctx.Err())
-	}
-	return result, nil
+func (f *funcDispatcher) Dispatch(ctx context.Context, spec dispatch.TaskSpec, contextID string) (string, string, error) {
+	return f.fn(ctx, spec, contextID)
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +103,7 @@ func TestFanOut_DispatchesAllTasks(t *testing.T) {
 		},
 	}
 
-	o := newTestOrchestrator(mock.Dispatch)
+	o := orchestrator.New(mock, nil)
 	req := orchestrator.FanOutRequest{
 		ContextID: "ctx-multi",
 		Tasks: []dispatch.TaskSpec{
@@ -198,7 +113,7 @@ func TestFanOut_DispatchesAllTasks(t *testing.T) {
 		},
 	}
 
-	result, err := o.fanOut(context.Background(), req)
+	result, err := o.FanOut(context.Background(), req)
 	if err != nil {
 		t.Fatalf("FanOut returned error: %v", err)
 	}
@@ -211,11 +126,11 @@ func TestFanOut_DispatchesAllTasks(t *testing.T) {
 }
 
 func TestFanOut_EmptyRequestReturnsValidationError(t *testing.T) {
-	o := newTestOrchestrator(func(_ context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
+	o := orchestrator.New(&funcDispatcher{fn: func(_ context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
 		return "", "", nil
-	})
+	}}, nil)
 
-	_, err := o.fanOut(context.Background(), orchestrator.FanOutRequest{})
+	_, err := o.FanOut(context.Background(), orchestrator.FanOutRequest{})
 	if err == nil {
 		t.Fatal("expected validation error for empty FanOutRequest, got nil")
 	}
@@ -223,10 +138,10 @@ func TestFanOut_EmptyRequestReturnsValidationError(t *testing.T) {
 
 func TestFanOut_GeneratesContextIDWhenEmpty(t *testing.T) {
 	var capturedContextID string
-	o := newTestOrchestrator(func(_ context.Context, _ dispatch.TaskSpec, contextID string) (string, string, error) {
+	o := orchestrator.New(&funcDispatcher{fn: func(_ context.Context, _ dispatch.TaskSpec, contextID string) (string, string, error) {
 		capturedContextID = contextID
 		return "task-1", "subject-1", nil
-	})
+	}}, nil)
 
 	req := orchestrator.FanOutRequest{
 		// ContextID intentionally left empty
@@ -235,7 +150,7 @@ func TestFanOut_GeneratesContextIDWhenEmpty(t *testing.T) {
 		},
 	}
 
-	_, err := o.fanOut(context.Background(), req)
+	_, err := o.FanOut(context.Background(), req)
 	if err != nil {
 		t.Fatalf("FanOut: %v", err)
 	}
@@ -250,7 +165,7 @@ func TestFanOut_ContextCancellationReturnsPartialResults(t *testing.T) {
 	callCount := 0
 	var mu sync.Mutex
 
-	o := newTestOrchestrator(func(ctx context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
+	o := orchestrator.New(&funcDispatcher{fn: func(ctx context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
 		mu.Lock()
 		callCount++
 		mu.Unlock()
@@ -260,7 +175,7 @@ func TestFanOut_ContextCancellationReturnsPartialResults(t *testing.T) {
 		case <-ctx.Done():
 			return "", "", ctx.Err()
 		}
-	})
+	}}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -273,7 +188,7 @@ func TestFanOut_ContextCancellationReturnsPartialResults(t *testing.T) {
 		},
 	}
 
-	result, err := o.fanOut(ctx, req)
+	result, err := o.FanOut(ctx, req)
 	if err == nil {
 		t.Error("expected error from cancelled context, got nil")
 	}
@@ -292,9 +207,9 @@ func TestFanOut_ContextCancellationReturnsPartialResults(t *testing.T) {
 func TestFanOut_DispatchErrorRecordedInResult(t *testing.T) {
 	dispatchErr := errors.New("no agent for skill")
 
-	o := newTestOrchestrator(func(_ context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
+	o := orchestrator.New(&funcDispatcher{fn: func(_ context.Context, _ dispatch.TaskSpec, _ string) (string, string, error) {
 		return "", "", dispatchErr
-	})
+	}}, nil)
 
 	req := orchestrator.FanOutRequest{
 		ContextID: "ctx-err",
@@ -303,14 +218,14 @@ func TestFanOut_DispatchErrorRecordedInResult(t *testing.T) {
 		},
 	}
 
-	result, err := o.fanOut(context.Background(), req)
+	result, err := o.FanOut(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected top-level error (should be captured per-task): %v", err)
 	}
 	if result.Tasks[0].Error == nil {
 		t.Error("expected per-task error, got nil")
 	}
-	if result.Tasks[0].Status != "failed" {
-		t.Errorf("expected status 'failed', got %q", result.Tasks[0].Status)
+	if result.Tasks[0].Status != a2a.TaskStateFailed {
+		t.Errorf("expected status %q, got %q", a2a.TaskStateFailed, result.Tasks[0].Status)
 	}
 }

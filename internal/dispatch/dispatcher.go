@@ -8,20 +8,31 @@ import (
 	"log/slog"
 
 	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/queue"
 	"github.com/raykao/agent-forge/internal/registry"
 )
+
+// MessagePublisher is the interface Dispatcher uses to publish messages.
+// queue.Publisher satisfies this interface.
+type MessagePublisher interface {
+	PublishJSON(ctx context.Context, subject string, v interface{}) error
+}
+
+// TaskDispatcher is the interface Orchestrator uses to dispatch individual tasks.
+// Dispatcher satisfies this interface.
+type TaskDispatcher interface {
+	Dispatch(ctx context.Context, spec TaskSpec, contextID string) (taskID string, subject string, err error)
+}
 
 // Dispatcher handles publishing tasks to the correct NATS subjects and
 // tracking their initial dispatch status.
 type Dispatcher struct {
-	publisher *queue.Publisher
+	publisher MessagePublisher
 	registry  *registry.Registry
 	logger    *slog.Logger
 }
 
 // NewDispatcher creates a Dispatcher with the given publisher, registry, and logger.
-func NewDispatcher(publisher *queue.Publisher, reg *registry.Registry, logger *slog.Logger) *Dispatcher {
+func NewDispatcher(publisher MessagePublisher, reg *registry.Registry, logger *slog.Logger) *Dispatcher {
 	if logger == nil {
 		logger = slog.Default()
 	}
