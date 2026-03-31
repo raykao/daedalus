@@ -55,6 +55,14 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Create streams before running tests. These must exist before the proxy
+	// attempts to publish results or status updates.
+	if err := ensureStreams(); err != nil {
+		fmt.Fprintf(os.Stderr, "stream setup failed: %v\n", err)
+		teardown()
+		os.Exit(1)
+	}
+
 	code := m.Run()
 	teardown()
 	os.Exit(code)
@@ -79,6 +87,41 @@ func teardown() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run()
+}
+
+func ensureStreams() error {
+	nc, err := nats.Connect(natsURL, nats.Timeout(5*time.Second))
+	if err != nil {
+		return fmt.Errorf("connect to NATS: %w", err)
+	}
+	defer nc.Close()
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return fmt.Errorf("jetstream context: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Ensure all three streams exist before any test or proxy publish attempt.
+	streams := []struct {
+		name     string
+		subjects []string
+	}{
+		{taskStream, []string{"agent.tasks.>"}},
+		{resultStream, []string{"agent.results.>"}},
+		{statusStream, []string{"agent.status.>"}},
+	}
+	for _, s := range streams {
+		if _, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+			Name:     s.name,
+			Subjects: s.subjects,
+		}); err != nil {
+			return fmt.Errorf("create stream %s: %w", s.name, err)
+		}
+	}
+	return nil
 }
 
 func waitForNATS(timeout time.Duration) error {
@@ -123,29 +166,6 @@ func TestEndToEnd_CompletedTask(t *testing.T) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		t.Fatalf("JetStream context: %v", err)
-	}
-
-	// Ensure the task stream exists so the proxy consumer can bind to it.
-	// The proxy creates this on startup, but CreateOrUpdateStream is idempotent.
-	if _, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     taskStream,
-		Subjects: []string{"agent.tasks.>"},
-	}); err != nil {
-		t.Fatalf("ensure %s stream: %v", taskStream, err)
-	}
-
-	// Create result and status streams so the proxy can publish into them.
-	if _, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     resultStream,
-		Subjects: []string{"agent.results.>"},
-	}); err != nil {
-		t.Fatalf("create %s stream: %v", resultStream, err)
-	}
-	if _, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     statusStream,
-		Subjects: []string{"agent.status.>"},
-	}); err != nil {
-		t.Fatalf("create %s stream: %v", statusStream, err)
 	}
 
 	// Set up ordered consumers BEFORE publishing so no messages are missed.
@@ -195,6 +215,14 @@ func TestEndToEnd_CompletedTask(t *testing.T) {
 	go func() {
 		var updates []a2a.TaskStatus
 		for {
+			// Check if context is done before attempting fetch.
+			select {
+			case <-ctx.Done():
+				statusCh <- statusResult{updates: updates}
+				return
+			default:
+			}
+
 			msg, fetchErr := statusCons.Next(
 				jetstream.FetchContext(ctx),
 			)
