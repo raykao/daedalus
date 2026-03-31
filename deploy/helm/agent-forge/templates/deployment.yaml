@@ -1,5 +1,5 @@
 {{- range .Values.workers }}
-{{- if .enabled }}
+{{- if and .enabled (not ($.Values.keda.enabled)) }}
 {{- $worker := . }}
 {{- $root := $ }}
 ---

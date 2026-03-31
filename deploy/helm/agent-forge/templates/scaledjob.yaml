@@ -1,0 +1,134 @@
+{{- if .Values.keda.enabled }}
+{{- range .Values.workers }}
+{{- if .enabled }}
+{{- $worker := . }}
+{{- $root := $ }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "agent-forge.workerFullname" (dict "root" $root "worker" $worker) }}
+  labels:
+    {{- include "agent-forge.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $worker.name }}
+spec:
+  jobTargetRef:
+    # activeDeadlineSeconds caps the total runtime of each Job pod (task timeout).
+    activeDeadlineSeconds: {{ $root.Values.keda.activeDeadlineSeconds | default 600 }}
+    # backoffLimit: 0 means failed tasks are not retried; the proxy nacks the message instead.
+    backoffLimit: {{ $root.Values.keda.backoffLimit | default 2 }}
+    template:
+      metadata:
+        labels:
+          {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 10 }}
+      spec:
+        # restartPolicy: Never - failed tasks nack the message rather than restarting the pod.
+        # KEDA creates a new Job for each trigger event.
+        restartPolicy: Never
+        terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds | default 35 }}
+        {{- with $root.Values.imagePullSecrets }}
+        imagePullSecrets:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumes:
+          - name: workspace
+            emptyDir: {}
+          - name: agent-registry
+            configMap:
+              name: {{ include "agent-forge.fullname" $root }}-registry
+
+        containers:
+          # Proxy sidecar: consumes one message from NATS JetStream and drives the agent via ACP.
+          # Pod exits after the task completes; KEDA creates a new Job for each pending message.
+          - name: proxy
+            {{- $proxyImage := $root.Values.proxy.image }}
+            {{- if and $worker.proxy $worker.proxy.image }}
+            {{- $proxyImage = $worker.proxy.image }}
+            {{- end }}
+            image: "{{ $proxyImage.repository }}:{{ $proxyImage.tag | default "latest" }}"
+            imagePullPolicy: {{ $proxyImage.pullPolicy | default "IfNotPresent" }}
+            env:
+              - name: ACP_ADDR
+                value: "localhost:{{ $worker.acpPort | default 3000 }}"
+              - name: NATS_URL
+                value: {{ include "agent-forge.natsURL" $root | quote }}
+              - name: NATS_STREAM
+                value: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
+              - name: NATS_SUBJECT
+                value: {{ $worker.queueSubject | quote }}
+              - name: WORK_DIR
+                value: "/workspace"
+              - name: LOG_LEVEL
+                value: {{ $root.Values.global.logLevel | default "info" | quote }}
+            volumeMounts:
+              - name: workspace
+                mountPath: /workspace
+              - name: agent-registry
+                mountPath: /etc/agent-forge
+                readOnly: true
+            {{- with $worker.proxy.resources }}
+            resources:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            livenessProbe:
+              exec:
+                command: ["true"]
+              initialDelaySeconds: 10
+              periodSeconds: 15
+              failureThreshold: 3
+            readinessProbe:
+              exec:
+                command: ["true"]
+              initialDelaySeconds: 5
+              periodSeconds: 10
+              failureThreshold: 3
+
+          # Agent container: the AI agent runtime that listens on ACP
+          - name: agent
+            image: "{{ $worker.image.repository }}:{{ $worker.image.tag | default "latest" }}"
+            imagePullPolicy: {{ $worker.image.pullPolicy | default "IfNotPresent" }}
+            ports:
+              - name: acp
+                containerPort: {{ $worker.acpPort | default 3000 }}
+                protocol: TCP
+            {{- with $worker.env }}
+            env:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            volumeMounts:
+              - name: workspace
+                mountPath: /workspace
+            {{- with $worker.resources }}
+            resources:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            livenessProbe:
+              tcpSocket:
+                port: acp
+              initialDelaySeconds: 15
+              periodSeconds: 20
+              failureThreshold: 3
+            readinessProbe:
+              tcpSocket:
+                port: acp
+              initialDelaySeconds: 10
+              periodSeconds: 10
+              failureThreshold: 3
+
+  pollingInterval: {{ $root.Values.keda.pollingInterval | default 15 }}
+  maxReplicaCount: {{ $root.Values.keda.maxReplicaCount | default 5 }}
+  successfulJobsHistoryLimit: {{ $root.Values.keda.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ $root.Values.keda.failedJobsHistoryLimit | default 3 }}
+
+  triggers:
+    - type: nats-jetstream
+      metadata:
+        natsServerMonitoringEndpoint: {{ include "agent-forge.natsMonitoringURL" $root | quote }}
+        account: "$G"
+        stream: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
+        consumer: {{ $worker.name | quote }}
+        lagThreshold: {{ $root.Values.keda.lagThreshold | default "1" | quote }}
+        activationLagThreshold: {{ $root.Values.keda.activationLagThreshold | default "0" | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
