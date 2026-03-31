@@ -120,9 +120,41 @@ Goal: deploy to Kubernetes with KEDA-based autoscaling.
 ## Phase 2 - Multi-Agent and Fan-Out
 
 ### 2.1 Fan-out task dispatch
+
+Dispatch a compound task to multiple agents in parallel. The orchestrator receives a list of explicit skill/prompt pairs and routes each to the appropriate agent via NATS.
+
+**Deliverables:**
+- Structured input model: `TaskSpec` struct with explicit skill ID, prompt, and optional metadata
+- `Orchestrator` type in `internal/orchestrator/` that accepts `[]TaskSpec`, routes each to the right agent via Registry skill matching, and publishes `SendMessageRequest` per task to the agent's NATS subject
+- `Dispatcher` in `internal/dispatch/` that handles the actual NATS publishing and status tracking
+- Result collector that subscribes to `agent.results.<taskId>` subjects and aggregates responses
+- Unit tests with mock NATS (embedded server from test infrastructure)
+
 ### 2.2 Dependency-ordered execution (implement, then test, then docs)
 ### 2.3 Result merging and PR creation
+
 ### 2.4 Dynamic AgentCard registry (NATS events)
+
+Replace the static JSON registry with a live NATS JetStream KV store. Agents self-register on startup and renew via heartbeat. The orchestrator watches for changes in real time.
+
+**Deliverables:**
+- NATS JetStream KV store for AgentCards (bucket: `agent-cards`, key: agent name, value: JSON AgentCard)
+- `DynamicRegistry` in `internal/registry/dynamic.go` that wraps NATS KV and implements the same lookup interface as the static `Registry` (FindBySkill, FindByTag, FindByName, Route, RouteByScore, All)
+- KV Watch for real-time updates (agent registration/departure)
+- TTL-based heartbeat expiry (configurable, default 30s)
+- Fallback: loads static registry file, then overlays dynamic entries
+- Unit tests with embedded NATS server
+
+### Phase 2 Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Task splitting (2.1) | Structured input (`[]TaskSpec`) | Deterministic, testable, no LLM dependency in orchestrator hot path. The orchestrator receives explicit skill/prompt pairs. LLM-based compound prompt analysis deferred to v2 as an optional pre-processing step. |
+| Dynamic registry transport (2.4) | NATS JetStream KV store | Purpose-built for this use case: key=agent name, value=AgentCard JSON. Built-in Watch API for real-time updates eliminates custom pub/sub. TTL support provides heartbeat expiry without custom protocol. The existing static registry becomes the bootstrap/fallback layer. |
+| Registry interface (2.4) | Same interface, new implementation | `DynamicRegistry` implements the same lookup methods as the static `Registry`. Callers (orchestrator, proxy) don't need to know whether discovery is static or dynamic. This is a clean extension, not a rewrite. |
+| DAG representation (2.2) | TBD | Will be decided when Batch 2 starts. Candidates: adjacency list (simple), or topological sort with in-degree tracking. |
+| Merge strategy (2.3) | TBD | Will be decided when Batch 3 starts. Candidates: octopus merge, sequential cherry-pick, or rebase-based. |
+| PR creation tool (2.3) | TBD | `gh` CLI vs Go GitHub client. |
 
 ---
 
