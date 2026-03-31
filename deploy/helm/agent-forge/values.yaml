@@ -11,6 +11,9 @@ nats:
   # URL for external NATS (only used when nats.enabled=false).
   # When nats.enabled=true the URL is computed from the release name: nats://<release-name>-nats:4222
   url: "nats://external-nats:4222"
+  # Monitoring endpoint for external NATS (only used when nats.enabled=false).
+  # When nats.enabled=true the monitoring URL is computed from the release name: http://<release-name>-nats:8222
+  monitoringEndpoint: "http://external-nats:8222"
   # Bitnami NATS subchart values (only used when nats.enabled=true)
   auth:
     enabled: false
@@ -194,3 +197,19 @@ workers:
 # Grace period must exceed the proxy drain timeout (30s) plus a small buffer.
 # Phase 0.4 SIGTERM validation established 35s as the correct value.
 terminationGracePeriodSeconds: 35
+
+# KEDA ScaledJob configuration (requires KEDA operator installed in cluster).
+# When enabled, Deployments are NOT created - ScaledJobs are mutually exclusive with Deployments.
+keda:
+  enabled: false
+  pollingInterval: 15
+  maxReplicaCount: 5
+  activeDeadlineSeconds: 600
+  backoffLimit: 2
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # lagThreshold: one pod per pending message in the JetStream consumer
+  lagThreshold: "1"
+  # activationLagThreshold: scale from zero when any message exists
+  activationLagThreshold: "0"
+  natsStream: "AGENT_TASKS"

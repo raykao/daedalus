@@ -81,3 +81,16 @@ When nats.enabled=false, fall back to nats.url for external broker configuration
 {{- .Values.nats.url }}
 {{- end }}
 {{- end }}
+
+{{/*
+Resolve the NATS monitoring endpoint dynamically.
+When nats.enabled=true, compute from the release name (bitnami/nats exposes :8222 by default).
+When nats.enabled=false, fall back to nats.monitoringEndpoint for external NATS.
+*/}}
+{{- define "agent-forge.natsMonitoringURL" -}}
+{{- if .Values.nats.enabled }}
+{{- printf "http://%s-nats:8222" .Release.Name }}
+{{- else }}
+{{- .Values.nats.monitoringEndpoint }}
+{{- end }}
+{{- end }}
