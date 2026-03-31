@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-forge/schemas/send-message-request.schema.json",
+  "type": "object",
+  "required": ["message"],
+  "properties": {
+    "message": {
+      "$ref": "message.schema.json"
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "acceptedOutputModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "historyLength": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
