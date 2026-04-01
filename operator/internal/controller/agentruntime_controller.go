@@ -901,11 +901,31 @@ func imagePullSecretsUnstructured(rt *forgev1alpha1.AgentRuntime) []interface{} 
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&forgev1alpha1.AgentRuntime{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
-		Owns(&appsv1.Deployment{}).
-		Named("agentruntime").
-		Complete(r)
+		Owns(&appsv1.Deployment{})
+
+	// Watch KEDA ScaledJobs if CRD is installed
+	scaledJob := &unstructured.Unstructured{}
+	scaledJob.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "keda.sh",
+		Version: "v1alpha1",
+		Kind:    "ScaledJob",
+	})
+
+	// Check if KEDA CRD exists by attempting discovery
+	_, err := mgr.GetRESTMapper().RESTMapping(
+		schema.GroupKind{Group: "keda.sh", Kind: "ScaledJob"},
+		"v1alpha1",
+	)
+	if err == nil {
+		builder = builder.Owns(scaledJob)
+	} else {
+		log := mgr.GetLogger()
+		log.Info("KEDA ScaledJob CRD not found, skipping watch — ScaledJob changes won't trigger reconciliation")
+	}
+
+	return builder.Named("agentruntime").Complete(r)
 }
