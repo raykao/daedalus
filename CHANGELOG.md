@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Copilot CLI Dockerfile for ACP server mode (Phase 4.1)
+- Docker Compose stack for real Copilot CLI validation
+- Validation script for end-to-end proxy + Copilot CLI testing
+
 ## Phase 3 - Pluggable Runtime and Operator
 
 ### Added
