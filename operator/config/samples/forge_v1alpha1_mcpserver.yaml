@@ -1,0 +1,22 @@
+apiVersion: forge.agentforge.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: github-tools
+  namespace: agent-forge
+spec:
+  protocol: StreamableHTTP
+  url: http://github-mcp-server.agent-forge.svc:8080/mcp
+  description: "GitHub MCP server providing repository, issue, and PR tools"
+  tools:
+  - gh-repo-list
+  - gh-issue-create
+  - gh-pr-create
+  - gh-search-code
+  headers:
+  - name: Authorization
+    valueFrom:
+      secretKeyRef:
+        name: github-credentials
+        key: token
+  allowedNamespaces:
+    from: Same

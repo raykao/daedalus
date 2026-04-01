@@ -1,0 +1,15 @@
+apiVersion: forge.agentforge.dev/v1alpha1
+kind: ModelConfig
+metadata:
+  name: github-copilot
+  namespace: agent-forge
+spec:
+  provider: github-copilot
+  model: copilot
+  apiKey:
+    valueFrom:
+      secretKeyRef:
+        name: github-credentials
+        key: token
+  allowedNamespaces:
+    from: Same
