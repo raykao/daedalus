@@ -93,8 +93,8 @@ type AgentSkill struct {
 
 // AgentCapabilities - agent protocol capabilities
 type AgentCapabilities struct {
-	Streaming         bool `json:"streaming,omitempty"`
-	PushNotifications bool `json:"pushNotifications,omitempty"`
+	Streaming         bool `json:"streaming"`
+	PushNotifications bool `json:"pushNotifications"`
 }
 
 // ExtractPromptText extracts concatenated text from message parts
