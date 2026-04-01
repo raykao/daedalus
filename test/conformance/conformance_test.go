@@ -326,6 +326,16 @@ func TestTaskExecutionEdgeCases(t *testing.T) {
 			wantState: a2a.TaskStateCompleted,
 			wantID:    "only-msg-id",
 		},
+		{
+			name: "both taskId and messageId empty generates fallback ID",
+			req: a2a.SendMessageRequest{
+				Message: a2a.Message{
+					Role:  "user",
+					Parts: []a2a.Part{{Text: "test"}},
+				},
+			},
+			wantState: a2a.TaskStateCompleted,
+		},
 	}
 
 	for _, tt := range tests {
@@ -335,8 +345,17 @@ func TestTaskExecutionEdgeCases(t *testing.T) {
 				t.Fatalf("sendMessage: %v", err)
 			}
 
-			if task.ID != tt.wantID {
-				t.Errorf("task.ID = %q, want %q", task.ID, tt.wantID)
+			if tt.wantID != "" {
+				if task.ID != tt.wantID {
+					t.Errorf("task.ID = %q, want %q", task.ID, tt.wantID)
+				}
+			} else {
+				if task.ID == "" {
+					t.Error("task.ID is empty, want non-empty fallback ID")
+				}
+				if !strings.HasPrefix(task.ID, "anonymous-") {
+					t.Errorf("task.ID = %q, want prefix \"anonymous-\"", task.ID)
+				}
 			}
 
 			if task.Status.State != tt.wantState {
@@ -412,6 +431,15 @@ func TestContentTypes(t *testing.T) {
 			name:       "GET agent card returns application/json",
 			method:     http.MethodGet,
 			path:       "/.well-known/agent-card.json",
+			wantStatus: http.StatusOK,
+			wantCT:     "application/json",
+		},
+		{
+			name:       "POST / accepts JSON with charset parameter",
+			method:     http.MethodPost,
+			path:       "/",
+			body:       `{"message":{"messageId":"ct-test","role":"user","parts":[{"text":"test"}]}}`,
+			ct:         "application/json; charset=utf-8",
 			wantStatus: http.StatusOK,
 			wantCT:     "application/json",
 		},
