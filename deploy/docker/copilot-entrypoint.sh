@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Validate GITHUB_TOKEN is set
-if [ -z "$GITHUB_TOKEN" ]; then
+if [ -z "${GITHUB_TOKEN:-}" ]; then
     echo "ERROR: GITHUB_TOKEN environment variable is required" >&2
     exit 1
 fi
