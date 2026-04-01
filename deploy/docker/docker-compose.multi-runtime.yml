@@ -1,0 +1,72 @@
+# Multi-runtime Docker Compose stack.
+#
+# Runs two distinct agent runtimes behind the same NATS message bus:
+#   Runtime 1 (ACP-based): mock-acp agent + proxy sidecar (copilot-bridge pattern)
+#   Runtime 2 (A2A HTTP):  echo-a2a server (pluggable runtime pattern)
+#
+# This validates that the platform can dispatch tasks to heterogeneous runtimes
+# discovered via AgentCard and routed by the orchestrator.
+
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Runtime 1: ACP-based (copilot-bridge pattern)
+  mock-acp:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.mock-acp
+    ports:
+      - "3000:3000"
+    command: ["--port", "3000", "--verbose"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w1 localhost 3000 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.proxy
+    environment:
+      ACP_ADDR: mock-acp:3000
+      NATS_URL: nats://nats:4222
+      NATS_STREAM: AGENT_TASKS
+      NATS_SUBJECT: agent.tasks.coding
+      WORK_DIR: /workspace
+      LOG_LEVEL: debug
+    depends_on:
+      nats:
+        condition: service_healthy
+      mock-acp:
+        condition: service_healthy
+
+  # Runtime 2: Direct A2A HTTP (pluggable runtime pattern)
+  echo-a2a:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.echo-a2a
+    ports:
+      - "8080:8080"
+    command: ["--port", "8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    depends_on:
+      nats:
+        condition: service_healthy
