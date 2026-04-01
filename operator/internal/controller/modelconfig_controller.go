@@ -222,7 +222,7 @@ func (r *ModelConfigReconciler) propagateHashToAgentRuntimes(
 
 	// List all AgentRuntimes in the ModelConfig's namespace.
 	var runtimeList forgev1alpha1.AgentRuntimeList
-	if err := r.List(ctx, &runtimeList, client.InNamespace(mc.Namespace)); err != nil {
+	if err := r.List(ctx, &runtimeList); err != nil {
 		return fmt.Errorf("listing AgentRuntimes: %w", err)
 	}
 

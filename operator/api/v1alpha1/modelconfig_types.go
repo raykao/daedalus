@@ -38,7 +38,7 @@ type ModelConfigSpec struct {
 
 	// apiKey provides the API key via inline value or secret reference.
 	// +optional
-	APIKey *ValueRef `json:"apiKey,omitempty"`
+	APIKey *SingleValueRef `json:"apiKey,omitempty"`
 
 	// parameters are model-specific parameters (temperature, max_tokens, etc.).
 	// +optional

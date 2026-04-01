@@ -310,12 +310,47 @@ func (r *AgentRuntimeReconciler) reconcileWorkload(ctx context.Context, rt *forg
 
 	switch mode {
 	case "ScaledJob":
+		if err := r.deleteDeploymentIfExists(ctx, rt); err != nil {
+			return err
+		}
 		return r.reconcileScaledJob(ctx, rt)
 	case "Static":
+		if err := r.deleteScaledJobIfExists(ctx, rt); err != nil {
+			return err
+		}
 		return r.reconcileDeployment(ctx, rt)
 	default:
 		return fmt.Errorf("unsupported scaling mode: %s", mode)
 	}
+}
+
+// deleteDeploymentIfExists removes an existing Deployment for this runtime if present.
+func (r *AgentRuntimeReconciler) deleteDeploymentIfExists(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+	dep := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: rt.Namespace, Name: rt.Name}, dep)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return r.Delete(ctx, dep)
+}
+
+// deleteScaledJobIfExists removes an existing ScaledJob for this runtime if present.
+func (r *AgentRuntimeReconciler) deleteScaledJobIfExists(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+	sj := &unstructured.Unstructured{}
+	sj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledJob",
+	})
+	err := r.Get(ctx, client.ObjectKey{Namespace: rt.Namespace, Name: rt.Name}, sj)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return r.Delete(ctx, sj)
 }
 
 // reconcileScaledJob creates or updates a KEDA ScaledJob using unstructured.
@@ -371,7 +406,10 @@ func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *fo
 		"app.kubernetes.io/managed-by": "agent-forge-operator",
 	}
 
-	containers := r.buildContainers(rt, port)
+	containers, err := r.buildContainers(rt, port)
+	if err != nil {
+		return fmt.Errorf("building containers: %w", err)
+	}
 
 	desired := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -401,7 +439,7 @@ func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *fo
 	}
 
 	var existing appsv1.Deployment
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), &existing)
+	err = r.Get(ctx, client.ObjectKeyFromObject(desired), &existing)
 	if apierrors.IsNotFound(err) {
 		if err := r.Create(ctx, desired); err != nil {
 			return fmt.Errorf("creating Deployment: %w", err)
@@ -571,7 +609,7 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 }
 
 // buildContainers builds the container list for Deployment pods.
-func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime, port int32) []corev1.Container {
+func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime, port int32) ([]corev1.Container, error) {
 	envVars := buildEnvVarsTyped(rt)
 
 	agentContainer := corev1.Container{
@@ -590,7 +628,11 @@ func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime,
 		agentContainer.ImagePullPolicy = corev1.PullPolicy(rt.Spec.Container.ImagePullPolicy)
 	}
 	if rt.Spec.Container.Resources != nil {
-		agentContainer.Resources = buildResourceRequirementsTyped(rt)
+		rr, err := buildResourceRequirementsTyped(rt)
+		if err != nil {
+			return nil, fmt.Errorf("building resource requirements: %w", err)
+		}
+		agentContainer.Resources = rr
 	}
 
 	proxyContainer := corev1.Container{
@@ -610,7 +652,7 @@ func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime,
 		},
 	}
 
-	return []corev1.Container{agentContainer, proxyContainer}
+	return []corev1.Container{agentContainer, proxyContainer}, nil
 }
 
 // buildRegistryJSON creates the agent registry entry JSON.
@@ -681,12 +723,7 @@ func queueStream(rt *forgev1alpha1.AgentRuntime) string {
 func buildEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 	var envs []interface{}
 	for _, v := range rt.Spec.Env {
-		if v.Value != "" {
-			envs = append(envs, map[string]interface{}{
-				"name":  v.Name,
-				"value": v.Value,
-			})
-		} else if v.ValueFrom != nil {
+		if v.ValueFrom != nil {
 			if v.ValueFrom.SecretKeyRef != nil {
 				envs = append(envs, map[string]interface{}{
 					"name": v.Name,
@@ -708,6 +745,11 @@ func buildEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 					},
 				})
 			}
+		} else {
+			envs = append(envs, map[string]interface{}{
+				"name":  v.Name,
+				"value": v.Value,
+			})
 		}
 	}
 	return envs
@@ -717,12 +759,7 @@ func buildEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 func buildEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
 	var envs []corev1.EnvVar
 	for _, v := range rt.Spec.Env {
-		if v.Value != "" {
-			envs = append(envs, corev1.EnvVar{
-				Name:  v.Name,
-				Value: v.Value,
-			})
-		} else if v.ValueFrom != nil {
+		if v.ValueFrom != nil {
 			ev := corev1.EnvVar{Name: v.Name}
 			if v.ValueFrom.SecretKeyRef != nil {
 				ev.ValueFrom = &corev1.EnvVarSource{
@@ -744,6 +781,11 @@ func buildEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
 				}
 			}
 			envs = append(envs, ev)
+		} else {
+			envs = append(envs, corev1.EnvVar{
+				Name:  v.Name,
+				Value: v.Value,
+			})
 		}
 	}
 	return envs
@@ -786,40 +828,54 @@ func buildResourceRequirements(rt *forgev1alpha1.AgentRuntime) map[string]interf
 }
 
 // buildResourceRequirementsTyped returns typed resource requirements for Deployment.
-func buildResourceRequirementsTyped(rt *forgev1alpha1.AgentRuntime) corev1.ResourceRequirements {
+func buildResourceRequirementsTyped(rt *forgev1alpha1.AgentRuntime) (corev1.ResourceRequirements, error) {
 	rr := corev1.ResourceRequirements{}
 	if rt.Spec.Container.Resources == nil {
-		return rr
+		return rr, nil
 	}
 	if req := rt.Spec.Container.Resources.Requests; req != nil {
 		rr.Requests = corev1.ResourceList{}
 		if req.CPU != "" {
-			rr.Requests[corev1.ResourceCPU] = mustParseQuantity(req.CPU)
+			q, err := parseQuantity(req.CPU)
+			if err != nil {
+				return rr, fmt.Errorf("parsing requests.cpu %q: %w", req.CPU, err)
+			}
+			rr.Requests[corev1.ResourceCPU] = q
 		}
 		if req.Memory != "" {
-			rr.Requests[corev1.ResourceMemory] = mustParseQuantity(req.Memory)
+			q, err := parseQuantity(req.Memory)
+			if err != nil {
+				return rr, fmt.Errorf("parsing requests.memory %q: %w", req.Memory, err)
+			}
+			rr.Requests[corev1.ResourceMemory] = q
 		}
 	}
 	if lim := rt.Spec.Container.Resources.Limits; lim != nil {
 		rr.Limits = corev1.ResourceList{}
 		if lim.CPU != "" {
-			rr.Limits[corev1.ResourceCPU] = mustParseQuantity(lim.CPU)
+			q, err := parseQuantity(lim.CPU)
+			if err != nil {
+				return rr, fmt.Errorf("parsing limits.cpu %q: %w", lim.CPU, err)
+			}
+			rr.Limits[corev1.ResourceCPU] = q
 		}
 		if lim.Memory != "" {
-			rr.Limits[corev1.ResourceMemory] = mustParseQuantity(lim.Memory)
+			q, err := parseQuantity(lim.Memory)
+			if err != nil {
+				return rr, fmt.Errorf("parsing limits.memory %q: %w", lim.Memory, err)
+			}
+			rr.Limits[corev1.ResourceMemory] = q
 		}
 	}
-	return rr
+	return rr, nil
 }
 
-// mustParseQuantity parses a resource quantity string.
-func mustParseQuantity(s string) resource.Quantity {
-	q, err := resource.ParseQuantity(s)
-	if err != nil {
-		// Return a zero quantity on parse failure; validation should catch this.
-		return resource.Quantity{}
+// parseQuantity parses a resource quantity string, returning an error on failure.
+func parseQuantity(s string) (resource.Quantity, error) {
+	if s == "" {
+		return resource.Quantity{}, nil
 	}
-	return q
+	return resource.ParseQuantity(s)
 }
 
 // imagePullSecrets returns typed ImagePullSecrets for Deployment pods.

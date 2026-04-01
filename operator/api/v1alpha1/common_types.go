@@ -56,6 +56,18 @@ type ValueRef struct {
 	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
 }
 
+// SingleValueRef provides a flexible way to specify a single configuration value.
+// Unlike ValueRef, it has no Name field - use this for singular fields like apiKey.
+type SingleValueRef struct {
+	// value is an inline string value. Mutually exclusive with valueFrom.
+	// +optional
+	Value string `json:"value,omitempty"`
+
+	// valueFrom specifies a source for the value. Mutually exclusive with value.
+	// +optional
+	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
 // ValueSource describes where to find a value.
 type ValueSource struct {
 	// configMapKeyRef selects a key from a ConfigMap.
