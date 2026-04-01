@@ -1,0 +1,66 @@
+# Real Copilot CLI validation stack.
+#
+# Replaces mock-acp with actual GitHub Copilot CLI in ACP mode.
+# Requires GITHUB_TOKEN environment variable set on the host.
+#
+# Usage:
+#   export GITHUB_TOKEN="ghp_..."
+#   docker compose -f deploy/docker/docker-compose.copilot-cli.yml up --build
+
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  copilot-cli:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.copilot-cli
+    ports:
+      - "3000:3000"
+    command: ["--port", "3000"]
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?GITHUB_TOKEN must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w1 localhost 3000 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      nats:
+        condition: service_healthy
+    volumes:
+      - workspace:/workspace
+
+  proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.proxy
+    environment:
+      ACP_ADDR: copilot-cli:3000
+      NATS_URL: nats://nats:4222
+      NATS_STREAM: AGENT_TASKS
+      NATS_SUBJECT: "agent.tasks.>"
+      WORK_DIR: /workspace
+      LOG_LEVEL: debug
+    depends_on:
+      nats:
+        condition: service_healthy
+      copilot-cli:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - workspace:/workspace
+
+volumes:
+  workspace:
