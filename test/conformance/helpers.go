@@ -282,7 +282,10 @@ func newReferenceHandler() http.Handler {
 
 		var req a2a.SendMessageRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
+			errResp, _ := json.Marshal(map[string]string{"error": "invalid request body: " + err.Error()})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(errResp)
 			return
 		}
 

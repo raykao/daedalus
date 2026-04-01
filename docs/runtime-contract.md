@@ -71,6 +71,7 @@ The primary endpoint. The proxy forwards one task at a time.
 |------|---------|
 | 200 | Task processed (check `status.state` for outcome) |
 | 400 | Malformed request body (invalid JSON) |
+| 415 | Unsupported Content-Type (must be `application/json`) |
 | 503 | Server shutting down or not ready |
 
 ### GET /.well-known/agent-card.json — Discovery

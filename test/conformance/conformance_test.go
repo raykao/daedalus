@@ -435,6 +435,14 @@ func TestContentTypes(t *testing.T) {
 			wantCT:     "application/json",
 		},
 		{
+			name:       "POST / returns 400 for malformed JSON",
+			method:     http.MethodPost,
+			path:       "/",
+			body:       `{not valid json`,
+			ct:         "application/json",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "POST / accepts JSON with charset parameter",
 			method:     http.MethodPost,
 			path:       "/",
