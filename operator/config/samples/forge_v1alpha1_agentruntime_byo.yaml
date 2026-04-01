@@ -1,0 +1,29 @@
+apiVersion: forge.agentforge.dev/v1alpha1
+kind: AgentRuntime
+metadata:
+  name: doc-analyzer
+  namespace: agent-forge
+spec:
+  type: BYO
+  conformanceLevel: Level1
+  container:
+    image: ghcr.io/example/doc-analyzer:v2.1
+    port: 8080
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+  queue:
+    subject: agent.tasks.doc-analyzer
+  scaling:
+    mode: ScaledJob
+    keda:
+      maxReplicaCount: 3
+  agentCard:
+    name: doc-analyzer
+    description: "Analyzes documentation for completeness and accuracy"
+    skills:
+    - id: doc-analysis
+      name: Documentation Analysis
+      description: "Analyze documentation quality and completeness"
+      tags: ["documentation", "analysis"]

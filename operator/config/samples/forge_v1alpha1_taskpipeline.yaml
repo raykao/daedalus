@@ -1,9 +1,40 @@
 apiVersion: forge.agentforge.dev/v1alpha1
 kind: TaskPipeline
 metadata:
-  labels:
-    app.kubernetes.io/name: agent-forge-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: taskpipeline-sample
+  name: code-review-pipeline
+  namespace: agent-forge
 spec:
-  # TODO(user): Add fields here
+  description: "Multi-stage code review: analyze, test, review"
+  stages:
+  - name: analyze
+    tasks:
+    - name: static-analysis
+      agentRuntimeRef:
+        kind: AgentRuntime
+        apiGroup: forge.agentforge.dev
+        name: copilot-worker
+      skillID: code-review
+      prompt: "Analyze the following code for bugs and anti-patterns"
+      timeout: "5m"
+  - name: test
+    dependsOn: ["analyze"]
+    tasks:
+    - name: generate-tests
+      agentRuntimeRef:
+        kind: AgentRuntime
+        apiGroup: forge.agentforge.dev
+        name: copilot-worker
+      skillID: test-writing
+      prompt: "Write tests for the code based on the analysis: {{.PreviousStageOutput}}"
+  - name: review
+    dependsOn: ["analyze", "test"]
+    tasks:
+    - name: final-review
+      agentRuntimeRef:
+        kind: AgentRuntime
+        apiGroup: forge.agentforge.dev
+        name: doc-analyzer
+      skillID: doc-analysis
+      prompt: "Review the complete analysis and tests: {{.PreviousStageOutput}}"
+  resultStrategy: Last
+  timeout: "30m"

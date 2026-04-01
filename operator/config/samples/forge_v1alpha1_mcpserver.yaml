@@ -1,9 +1,22 @@
 apiVersion: forge.agentforge.dev/v1alpha1
 kind: MCPServer
 metadata:
-  labels:
-    app.kubernetes.io/name: agent-forge-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: mcpserver-sample
+  name: github-tools
+  namespace: agent-forge
 spec:
-  # TODO(user): Add fields here
+  protocol: StreamableHTTP
+  url: http://github-mcp-server.agent-forge.svc:8080/mcp
+  description: "GitHub MCP server providing repository, issue, and PR tools"
+  tools:
+  - gh-repo-list
+  - gh-issue-create
+  - gh-pr-create
+  - gh-search-code
+  headers:
+  - name: Authorization
+    valueFrom:
+      secretKeyRef:
+        name: github-credentials
+        key: token
+  allowedNamespaces:
+    from: Same

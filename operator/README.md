@@ -1,121 +1,149 @@
-# agent-forge-operator
-// TODO(user): Add simple overview of use/purpose
+# Agent Forge Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator that manages pluggable AI agent runtimes via Custom Resource Definitions (CRDs). The operator provisions and orchestrates agent workers, LLM configurations, MCP tool servers, and multi-stage task pipelines -- enabling autonomous, queue-driven agent execution on Kubernetes.
 
-## Getting Started
+## CRD Overview
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+| CRD | API Version | Purpose |
+|-----|-------------|---------|
+| **AgentRuntime** | `forge.agentforge.dev/v1alpha1` | Defines a worker runtime: container image, NATS queue binding, KEDA scaling, and agent capabilities. Supports `Declarative` (platform-managed) and `BYO` (user-provided) runtime types. |
+| **ModelConfig** | `forge.agentforge.dev/v1alpha1` | LLM provider configuration with secret-backed API keys. Supports cross-namespace sharing via Gateway API `AllowedNamespaces` pattern. |
+| **MCPServer** | `forge.agentforge.dev/v1alpha1` | Shared MCP (Model Context Protocol) tool server that agent runtimes reference. Supports SSE, StreamableHTTP, and Stdio transports. |
+| **TaskPipeline** | `forge.agentforge.dev/v1alpha1` | Multi-stage workflow routing with fan-out/fan-in, dependency ordering, and result aggregation across agent runtimes. |
+| **AgentCard** | `forge.agentforge.dev/v1alpha1` | Standalone capability discovery resource (A2A protocol). Can be inlined in AgentRuntime or shared across runtimes. |
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## Architecture
 
-```sh
-make docker-build docker-push IMG=<some-registry>/agent-forge-operator:tag
+```
+                              +---------------------+
+                              |    TaskPipeline      |
+                              |  (workflow routing)  |
+                              +----------+----------+
+                                         |
+                          stages[] reference AgentRuntimes
+                                         |
+                    +--------------------+--------------------+
+                    |                                         |
+          +---------+---------+                   +-----------+---------+
+          |   AgentRuntime    |                   |    AgentRuntime     |
+          |  (Declarative)    |                   |      (BYO)         |
+          +----+----+----+----+                   +----+----+----------+
+               |    |    |                             |    |
+               |    |    +-- env[]                     |    +-- agentCard (inline)
+               |    |                                  |
+               |    +-- agentCard / agentCardRef       +-- queue -> NATS JetStream
+               |
+               +-- modelConfigRef -----> ModelConfig (LLM creds)
+               |
+               +-- mcpServers[] -------> MCPServer   (tool servers)
+               |
+               +-- queue --------------> NATS JetStream
+               |
+               +-- scaling ------------> KEDA ScaledJob
+
+  Cross-namespace access controlled by AllowedNamespaces (Gateway API pattern)
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+## Quick Start
 
-**Install the CRDs into the cluster:**
+### Prerequisites
+
+- Go 1.24.6+
+- Docker 17.03+
+- kubectl 1.11.3+
+- Access to a Kubernetes 1.11.3+ cluster
+- [KEDA](https://keda.sh/) installed (for ScaledJob scaling)
+- [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) deployed in-cluster
+
+### 1. Install CRDs
 
 ```sh
 make install
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### 2. Deploy the operator
 
 ```sh
-make deploy IMG=<some-registry>/agent-forge-operator:tag
+make docker-build docker-push IMG=<your-registry>/agent-forge-operator:latest
+make deploy IMG=<your-registry>/agent-forge-operator:latest
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+### 3. Create a namespace and secrets
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+```sh
+kubectl create namespace agent-forge
+kubectl -n agent-forge create secret generic github-credentials \
+  --from-literal=token=$GITHUB_TOKEN
+```
+
+### 4. Deploy sample resources
+
+Apply the ModelConfig first (referenced by the AgentRuntime):
+
+```sh
+kubectl apply -f config/samples/forge_v1alpha1_modelconfig.yaml
+kubectl apply -f config/samples/forge_v1alpha1_mcpserver.yaml
+kubectl apply -f config/samples/forge_v1alpha1_agentruntime.yaml
+```
+
+Or apply all samples at once:
 
 ```sh
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+### 5. Verify
 
 ```sh
-kubectl delete -k config/samples/
+kubectl -n agent-forge get agentruntime,modelconfig,mcpserver
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+## Sample Resources
+
+The `config/samples/` directory contains realistic examples:
+
+| File | Description |
+|------|-------------|
+| `forge_v1alpha1_agentruntime.yaml` | Declarative copilot-bridge worker with KEDA scaling, inline AgentCard, and ModelConfig reference |
+| `forge_v1alpha1_agentruntime_byo.yaml` | BYO Python doc-analyzer agent with minimal configuration |
+| `forge_v1alpha1_modelconfig.yaml` | GitHub Copilot LLM provider with secret-backed API key |
+| `forge_v1alpha1_modelconfig_openai.yaml` | OpenAI GPT-4o provider with endpoint and parameters |
+| `forge_v1alpha1_mcpserver.yaml` | GitHub MCP tool server with StreamableHTTP and auth headers |
+| `forge_v1alpha1_taskpipeline.yaml` | 3-stage code review pipeline (analyze -> test -> review) |
+| `forge_v1alpha1_agentcard.yaml` | Standalone AgentCard for shared capability discovery |
+
+## Conformance Levels
+
+Agent runtimes declare a conformance level based on the [A2A Runtime Contract](../docs/runtime-contract.md):
+
+| Level | Requirements |
+|-------|-------------|
+| **Level 1** (Minimal) | Health endpoint, AgentCard, task execution |
+| **Level 2** (Production) | + SIGTERM graceful shutdown, JSON structured logging, OpenTelemetry tracing |
+| **Level 3** (Full) | + SSE streaming, context compaction, session resume |
+
+## Uninstall
 
 ```sh
-make uninstall
+kubectl delete -k config/samples/   # Remove sample CRs
+make uninstall                       # Remove CRDs
+make undeploy                        # Remove operator
 ```
 
-**UnDeploy the controller from the cluster:**
+## Related Documentation
+
+- [A2A Runtime Contract](../docs/runtime-contract.md) - Interface contract between platform and agent runtimes
+- [Comparison with kagent](../docs/comparison-kagent.md) - Design patterns adopted from kagent (TypedReference, ValueRef, AllowedNamespaces)
+
+## Development
 
 ```sh
-make undeploy
+make help          # Show all available targets
+make generate      # Generate code (DeepCopy, RBAC, CRD manifests)
+make manifests     # Generate CRD manifests
+make test          # Run tests
+make lint          # Run linters
 ```
-
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/agent-forge-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/agent-forge-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
 ## License
 
@@ -132,4 +160,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

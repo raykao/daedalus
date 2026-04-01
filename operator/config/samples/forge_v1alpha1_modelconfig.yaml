@@ -1,9 +1,15 @@
 apiVersion: forge.agentforge.dev/v1alpha1
 kind: ModelConfig
 metadata:
-  labels:
-    app.kubernetes.io/name: agent-forge-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: modelconfig-sample
+  name: github-copilot
+  namespace: agent-forge
 spec:
-  # TODO(user): Add fields here
+  provider: github-copilot
+  model: copilot
+  apiKey:
+    valueFrom:
+      secretKeyRef:
+        name: github-credentials
+        key: token
+  allowedNamespaces:
+    from: Same

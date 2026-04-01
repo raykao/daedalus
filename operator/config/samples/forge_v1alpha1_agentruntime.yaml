@@ -1,9 +1,64 @@
 apiVersion: forge.agentforge.dev/v1alpha1
 kind: AgentRuntime
 metadata:
-  labels:
-    app.kubernetes.io/name: agent-forge-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: agentruntime-sample
+  name: copilot-worker
+  namespace: agent-forge
 spec:
-  # TODO(user): Add fields here
+  type: Declarative
+  conformanceLevel: Level2
+  container:
+    image: ghcr.io/raykao/copilot-bridge:latest
+    port: 3000
+    workDir: /workspace
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    startupTimeout: "60s"
+    terminationGracePeriod: "35s"
+  queue:
+    subject: agent.tasks.copilot
+    stream: AGENT_TASKS
+  scaling:
+    mode: ScaledJob
+    keda:
+      pollingInterval: 15
+      maxReplicaCount: 5
+      activeDeadlineSeconds: 600
+      lagThreshold: "1"
+      activationLagThreshold: "0"
+  agentCard:
+    name: copilot
+    description: "GitHub Copilot agent for code assistance and generation"
+    version: "1.0.0"
+    skills:
+    - id: code-review
+      name: Code Review
+      description: "Review code for bugs, style, and best practices"
+      tags: ["review", "quality"]
+    - id: code-generation
+      name: Code Generation
+      description: "Generate code from natural language specifications"
+      tags: ["generation", "coding"]
+    - id: test-writing
+      name: Test Writing
+      description: "Write unit and integration tests"
+      tags: ["testing", "quality"]
+    defaultInputModes: ["text/plain"]
+    defaultOutputModes: ["text/plain"]
+    capabilities:
+      streaming: false
+      pushNotifications: false
+  modelConfigRef:
+    kind: ModelConfig
+    apiGroup: forge.agentforge.dev
+    name: github-copilot
+  env:
+  - name: GITHUB_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: github-credentials
+        key: token

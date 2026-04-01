@@ -1,9 +1,23 @@
 apiVersion: forge.agentforge.dev/v1alpha1
 kind: AgentCard
 metadata:
-  labels:
-    app.kubernetes.io/name: agent-forge-operator
-    app.kubernetes.io/managed-by: kustomize
-  name: agentcard-sample
+  name: shared-copilot-card
+  namespace: agent-forge
 spec:
-  # TODO(user): Add fields here
+  agentName: copilot
+  description: "Shared AgentCard for all copilot-bridge workers"
+  version: "1.0.0"
+  skills:
+  - id: code-review
+    name: Code Review
+    description: "Review code for bugs, style, and best practices"
+    tags: ["review", "quality"]
+  - id: code-generation
+    name: Code Generation
+    description: "Generate code from natural language specifications"
+    tags: ["generation", "coding"]
+  defaultInputModes: ["text/plain"]
+  defaultOutputModes: ["text/plain"]
+  capabilities:
+    streaming: false
+    pushNotifications: false
