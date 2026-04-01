@@ -1,0 +1,27 @@
+# Multi-stage build for the echo A2A server.
+# Stage 1: build the binary.
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY internal/ internal/
+COPY test/echo-a2a-server/ test/echo-a2a-server/
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /echo-a2a-server \
+    ./test/echo-a2a-server/
+
+# Stage 2: minimal runtime image.
+FROM alpine:3.20
+
+RUN addgroup -S a2a && adduser -S a2a -G a2a
+USER a2a
+
+COPY --from=builder /echo-a2a-server /usr/local/bin/echo-a2a-server
+
+EXPOSE 8080
+
+ENTRYPOINT ["echo-a2a-server"]
+CMD ["--port", "8080"]
