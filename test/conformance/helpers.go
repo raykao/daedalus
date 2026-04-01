@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -272,26 +273,26 @@ func newReferenceHandler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
-		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+		ct := r.Header.Get("Content-Type")
+		mediaType, _, _ := mime.ParseMediaType(ct)
+		if mediaType != "application/json" {
 			http.Error(w, `{"error":"unsupported content type"}`, http.StatusUnsupportedMediaType)
 			return
 		}
 
 		var req a2a.SendMessageRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			task := a2a.Task{
-				ID:     "error",
-				Status: a2a.TaskStatus{State: a2a.TaskStateFailed, Message: &a2a.Message{MessageID: "err-msg", Role: "agent", Parts: []a2a.Part{{Text: "invalid request: " + err.Error()}}}},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(task)
+			http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 			return
 		}
 
-		// Determine task ID: prefer taskId, fall back to messageId
+		// Determine task ID: prefer taskId, fall back to messageId, then generate
 		taskID := req.Message.TaskID
 		if taskID == "" {
 			taskID = req.Message.MessageID
+		}
+		if taskID == "" {
+			taskID = "anonymous-" + fmt.Sprintf("%d", time.Now().UnixNano())
 		}
 
 		promptText := req.Message.ExtractPromptText()
