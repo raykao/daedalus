@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Validate GITHUB_TOKEN is set
 if [ -z "$GITHUB_TOKEN" ]; then

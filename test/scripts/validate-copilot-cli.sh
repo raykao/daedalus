@@ -104,8 +104,8 @@ fi
 info "Step 4: Creating NATS streams..."
 
 nats_exec() {
-    docker compose -f "$COMPOSE_FILE" exec -T nats \
-        nats --server nats://localhost:4222 "$@"
+    docker compose -f "$COMPOSE_FILE" exec -T nats-box \
+        nats --server nats://nats:4222 "$@"
 }
 
 add_stream() {
@@ -155,29 +155,16 @@ fi
 # Step 6: Wait for result
 # ---------------------------------------------------------------------------
 
-info "Step 6: Waiting for result (timeout: 120s)..."
 RESULT_TIMEOUT=120
-RESULT_ELAPSED=0
-RESULT=""
-
-while [ $RESULT_ELAPSED -lt $RESULT_TIMEOUT ]; do
-    if [ "$USE_DOCKER_NATS" = true ]; then
-        RESULT=$(nats_exec consumer next AGENT_RESULTS "validation-consumer-$$" \
-            --filter="agent.results.${TASK_ID}" \
-            --timeout=5s --raw 2>/dev/null || true)
-    else
-        RESULT=$(nats consumer next AGENT_RESULTS "validation-consumer-$$" \
-            --filter="agent.results.${TASK_ID}" \
-            --server nats://localhost:4222 \
-            --timeout=5s --raw 2>/dev/null || true)
-    fi
-
-    if [ -n "$RESULT" ]; then
-        break
-    fi
-    sleep 2
-    RESULT_ELAPSED=$((RESULT_ELAPSED + 2))
-done
+info "Step 6: Waiting for result (timeout: ${RESULT_TIMEOUT}s)..."
+if [ "$USE_DOCKER_NATS" = true ]; then
+    RESULT=$(nats_exec sub "agent.results.${TASK_ID}" \
+        --stream=AGENT_RESULTS --count=1 --timeout="${RESULT_TIMEOUT}s" --raw 2>/dev/null || true)
+else
+    RESULT=$(nats sub "agent.results.${TASK_ID}" \
+        --server nats://localhost:4222 \
+        --stream=AGENT_RESULTS --count=1 --timeout="${RESULT_TIMEOUT}s" --raw 2>/dev/null || true)
+fi
 
 # ---------------------------------------------------------------------------
 # Step 7: Validate result

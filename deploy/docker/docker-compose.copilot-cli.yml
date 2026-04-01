@@ -21,6 +21,13 @@ services:
       retries: 10
       start_period: 5s
 
+  nats-box:
+    image: natsio/nats-box:0.14
+    depends_on:
+      nats:
+        condition: service_healthy
+    entrypoint: ["sleep", "infinity"]
+
   copilot-cli:
     build:
       context: ../..

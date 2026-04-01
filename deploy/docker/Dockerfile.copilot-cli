@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Try the most likely package names; at least one should succeed.
 RUN npm install -g @github/copilot-cli || \
     npm install -g github-copilot-cli || \
-    echo "WARN: Copilot CLI package name may vary - check npm registry"
+    { echo "ERROR: Failed to install Copilot CLI - check npm registry for correct package name" >&2; exit 1; }
 
 # Non-root user for security
 RUN groupadd -r copilot && useradd -r -g copilot -m copilot
@@ -21,8 +21,8 @@ RUN groupadd -r copilot && useradd -r -g copilot -m copilot
 # Copy entrypoint before switching to non-root user
 COPY --chmod=755 deploy/docker/copilot-entrypoint.sh /usr/local/bin/copilot-entrypoint.sh
 
+RUN mkdir -p /workspace && chown copilot:copilot /workspace
 USER copilot
-
 WORKDIR /workspace
 
 EXPOSE 3000
