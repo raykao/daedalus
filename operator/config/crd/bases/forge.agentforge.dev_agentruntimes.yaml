@@ -491,6 +491,11 @@ spec:
                           pods.
                         format: int32
                         type: integer
+                      natsMonitoringEndpoint:
+                        default: nats.nats.svc.cluster.local:8222
+                        description: natsMonitoringEndpoint is the NATS HTTP monitoring
+                          API endpoint for KEDA scaling.
+                        type: string
                       pollingInterval:
                         default: 15
                         description: pollingInterval is how often KEDA checks the

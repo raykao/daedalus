@@ -344,7 +344,7 @@ func (r *AgentRuntimeReconciler) deleteScaledJobIfExists(ctx context.Context, rt
 		Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledJob",
 	})
 	err := r.Get(ctx, client.ObjectKey{Namespace: rt.Namespace, Name: rt.Name}, sj)
-	if apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) {
 		return nil
 	}
 	if err != nil {
@@ -369,7 +369,7 @@ func (r *AgentRuntimeReconciler) reconcileScaledJob(ctx context.Context, rt *for
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(scaledJobGVK)
 	err := r.Get(ctx, client.ObjectKey{Name: sjName, Namespace: rt.Namespace}, existing)
-	if apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) {
 		if err := r.Create(ctx, sj); err != nil {
 			return fmt.Errorf("creating ScaledJob: %w", err)
 		}
@@ -592,7 +592,7 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 					map[string]interface{}{
 						"type": "nats-jetstream",
 						"metadata": map[string]interface{}{
-							"natsServerMonitoringEndpoint": "nats.nats.svc.cluster.local:8222",
+							"natsServerMonitoringEndpoint": natsMonitoringEndpoint(rt),
 							"account":                      "$G",
 							"stream":                       stream,
 							"consumer":                     durableName,
@@ -717,6 +717,15 @@ func queueStream(rt *forgev1alpha1.AgentRuntime) string {
 		return rt.Spec.Queue.Stream
 	}
 	return "AGENT_TASKS"
+}
+
+// natsMonitoringEndpoint returns the NATS HTTP monitoring endpoint from KEDASpec,
+// falling back to the default "nats.nats.svc.cluster.local:8222".
+func natsMonitoringEndpoint(rt *forgev1alpha1.AgentRuntime) string {
+	if rt.Spec.Scaling != nil && rt.Spec.Scaling.KEDA != nil && rt.Spec.Scaling.KEDA.NATSMonitoringEndpoint != "" {
+		return rt.Spec.Scaling.KEDA.NATSMonitoringEndpoint
+	}
+	return "nats.nats.svc.cluster.local:8222"
 }
 
 // buildEnvVars builds env vars as []interface{} for unstructured (ScaledJob).

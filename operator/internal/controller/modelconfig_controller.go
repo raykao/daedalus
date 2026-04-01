@@ -136,15 +136,17 @@ func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Message:            "ModelConfig is available and all references are resolved.",
 	})
 
-	if err := r.Status().Update(ctx, &mc); err != nil {
-		return ctrl.Result{}, fmt.Errorf("updating ModelConfig status: %w", err)
-	}
-
-	// 5. If hash changed, annotate downstream AgentRuntimes.
+	// 5. If hash changed, propagate BEFORE persisting status so retries
+	// still see hashChanged=true if propagation fails partway.
 	if hashChanged {
 		if err := r.propagateHashToAgentRuntimes(ctx, &mc, secretHash); err != nil {
 			return ctrl.Result{}, fmt.Errorf("propagating hash to AgentRuntimes: %w", err)
 		}
+	}
+
+	// 6. Only persist status after propagation succeeds.
+	if err := r.Status().Update(ctx, &mc); err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating ModelConfig status: %w", err)
 	}
 
 	return ctrl.Result{}, nil

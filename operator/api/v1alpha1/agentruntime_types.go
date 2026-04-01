@@ -209,6 +209,11 @@ type KEDASpec struct {
 	// +kubebuilder:default="0"
 	// +optional
 	ActivationLagThreshold string `json:"activationLagThreshold,omitempty"`
+
+	// natsMonitoringEndpoint is the NATS HTTP monitoring API endpoint for KEDA scaling.
+	// +kubebuilder:default="nats.nats.svc.cluster.local:8222"
+	// +optional
+	NATSMonitoringEndpoint string `json:"natsMonitoringEndpoint,omitempty"`
 }
 
 // ContextManagementSpec configures context window compression (Level 3 conformance).
