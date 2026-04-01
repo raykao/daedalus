@@ -16,6 +16,7 @@ import (
 
 	"github.com/raykao/agent-forge/internal/a2a"
 	"github.com/raykao/agent-forge/internal/acp"
+	contextmgmt "github.com/raykao/agent-forge/internal/contextmgmt"
 	"github.com/raykao/agent-forge/internal/queue"
 )
 
@@ -164,7 +165,7 @@ func TestHandlerFullFlow(t *testing.T) {
 		t.Fatalf("publisher: %v", err)
 	}
 
-	handler := NewHandler(acpClient, publisher, "/workspace", nil)
+	handler := NewHandler(acpClient, publisher, "/workspace", nil, nil)
 
 	// Build test request
 	req := a2a.SendMessageRequest{
@@ -249,7 +250,7 @@ func TestHandlerEmptyPrompt(t *testing.T) {
 		t.Fatalf("publisher: %v", err)
 	}
 
-	handler := NewHandler(acpClient, publisher, "/workspace", nil)
+	handler := NewHandler(acpClient, publisher, "/workspace", nil, nil)
 
 	// Message with no text parts
 	req := a2a.SendMessageRequest{
@@ -265,5 +266,133 @@ func TestHandlerEmptyPrompt(t *testing.T) {
 	err = handler.Handle(ctx, data)
 	if err == nil {
 		t.Fatal("expected error for empty prompt, got nil")
+	}
+}
+
+func TestHandlerContextTracking(t *testing.T) {
+	// Start mock ACP server
+	acpLn := startMockACPServer(t)
+	defer acpLn.Close()
+
+	// Start NATS
+	natsURL, cleanup := setupNATSWithStreams(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Connect ACP client
+	acpClient := acp.NewClient(acpLn.Addr().String(), nil)
+	if err := acpClient.Connect(ctx); err != nil {
+		t.Fatalf("acp connect: %v", err)
+	}
+	defer acpClient.Close()
+
+	// Connect NATS publisher
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatalf("nats connect: %v", err)
+	}
+	defer nc.Close()
+
+	publisher, err := queue.NewPublisher(nc, nil)
+	if err != nil {
+		t.Fatalf("publisher: %v", err)
+	}
+
+	// Create tracker with known config
+	tracker := contextmgmt.NewTracker(contextmgmt.DefaultConfig(), nil)
+	handler := NewHandler(acpClient, publisher, "/workspace", nil, tracker)
+
+	// Build test request
+	req := a2a.SendMessageRequest{
+		Message: a2a.Message{
+			MessageID: "msg-ctx",
+			TaskID:    "task-ctx",
+			Role:      "user",
+			Parts:     []a2a.Part{{Text: "test context tracking"}},
+		},
+	}
+	data, _ := json.Marshal(req)
+
+	// Subscribe to results before handling
+	js, _ := jetstream.New(nc)
+	resultSub, err := js.CreateOrUpdateConsumer(ctx, "RESULTS", jetstream.ConsumerConfig{
+		Name:          "test-ctx-consumer",
+		Durable:       "test-ctx-consumer",
+		FilterSubject: "agent.results.task-ctx",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})
+	if err != nil {
+		t.Fatalf("create result consumer: %v", err)
+	}
+
+	// Handle the message
+	if err := handler.Handle(ctx, data); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	// Check that result was published with context metadata
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		msgs, err := resultSub.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+		if err != nil {
+			t.Errorf("fetch result: %v", err)
+			return
+		}
+		for msg := range msgs.Messages() {
+			var task a2a.Task
+			if err := json.Unmarshal(msg.Data(), &task); err != nil {
+				t.Errorf("unmarshal task: %v", err)
+				return
+			}
+			if task.ID != "task-ctx" {
+				t.Errorf("expected task ID task-ctx, got %s", task.ID)
+			}
+			// Verify context usage metadata is present
+			if task.Metadata == nil {
+				t.Error("expected task metadata to be set")
+				msg.Ack()
+				return
+			}
+			ctxUsage, ok := task.Metadata["contextUsage"]
+			if !ok {
+				t.Error("expected contextUsage in task metadata")
+				msg.Ack()
+				return
+			}
+			usage, ok := ctxUsage.(map[string]interface{})
+			if !ok {
+				t.Errorf("expected contextUsage to be map, got %T", ctxUsage)
+				msg.Ack()
+				return
+			}
+			// turnCount should be 1 (one prompt/response cycle)
+			if tc, ok := usage["turnCount"]; ok {
+				// JSON numbers unmarshal as float64
+				if tcf, ok := tc.(float64); ok && tcf != 1 {
+					t.Errorf("expected turnCount 1, got %v", tc)
+				}
+			} else {
+				t.Error("expected turnCount in contextUsage")
+			}
+			// currentTokens should be > 0 (approximated from content length)
+			if ct, ok := usage["currentTokens"]; ok {
+				if ctf, ok := ct.(float64); ok && ctf <= 0 {
+					t.Errorf("expected currentTokens > 0, got %v", ct)
+				}
+			} else {
+				t.Error("expected currentTokens in contextUsage")
+			}
+			msg.Ack()
+		}
+	}()
+	wg.Wait()
+
+	// After Handle completes, session should be cleaned up (ended by defer)
+	if tracker.ActiveSessionCount() != 0 {
+		t.Errorf("expected 0 active sessions after Handle, got %d", tracker.ActiveSessionCount())
 	}
 }
