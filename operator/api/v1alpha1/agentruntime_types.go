@@ -225,17 +225,51 @@ type ContextManagementSpec struct {
 
 	// tokenThreshold triggers compaction when token count exceeds this value.
 	// +kubebuilder:default=100000
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	TokenThreshold int64 `json:"tokenThreshold,omitempty"`
 
 	// eventRetentionSize is the number of recent events to keep after compaction.
 	// +kubebuilder:default=50
+	// +kubebuilder:validation:Minimum=1
 	// +optional
 	EventRetentionSize int32 `json:"eventRetentionSize,omitempty"`
 
 	// summarizer configures the model used for context summarization.
 	// +optional
 	Summarizer *TypedReference `json:"summarizer,omitempty"`
+
+	// overlapSize is the number of events to overlap between compacted and retained
+	// segments, ensuring continuity across compaction boundaries.
+	// +kubebuilder:default=2
+	// +optional
+	OverlapSize int32 `json:"overlapSize,omitempty"`
+
+	// resurrection configures how sessions are restored after interruption.
+	// +optional
+	Resurrection *ResurrectionSpec `json:"resurrection,omitempty"`
+}
+
+// ResurrectionSpec configures the R18 context-aware resurrection strategy.
+// The proxy uses measured context usage to select between full, checkpoint,
+// or fresh resurrection when continuing a previously interrupted task.
+type ResurrectionSpec struct {
+	// fullThreshold is the context usage percentage below which full session
+	// restoration is attempted (restore entire session-store.db + events).
+	// +kubebuilder:default=60
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	FullThreshold int32 `json:"fullThreshold,omitempty"`
+
+	// checkpointThreshold is the context usage percentage below which
+	// checkpoint-based resurrection is used (inject summary, start fresh session).
+	// Above this, a completely fresh session with only git diff is created.
+	// +kubebuilder:default=90
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CheckpointThreshold int32 `json:"checkpointThreshold,omitempty"`
 }
 
 // AgentCardInline embeds AgentCard fields directly in the AgentRuntime spec.
@@ -340,6 +374,33 @@ type AgentRuntimeStatus struct {
 	// to detect credential rotation.
 	// +optional
 	ModelConfigHash string `json:"modelConfigHash,omitempty"`
+
+	// contextUsage tracks the latest context usage metrics reported by the proxy.
+	// +optional
+	ContextUsage *ContextUsageStatus `json:"contextUsage,omitempty"`
+}
+
+// ContextUsageStatus captures context window usage metrics from the proxy.
+type ContextUsageStatus struct {
+	// currentTokens is the estimated token count in the current session.
+	// +optional
+	CurrentTokens int64 `json:"currentTokens,omitempty"`
+
+	// usagePercent is the context usage as a percentage of the model's window.
+	// +optional
+	UsagePercent int32 `json:"usagePercent,omitempty"`
+
+	// compactionCount is the number of times context compaction has been triggered.
+	// +optional
+	CompactionCount int32 `json:"compactionCount,omitempty"`
+
+	// lastCompactionTime is the timestamp of the last compaction event.
+	// +optional
+	LastCompactionTime string `json:"lastCompactionTime,omitempty"`
+
+	// lastUpdated is when these metrics were last reported.
+	// +optional
+	LastUpdated string `json:"lastUpdated,omitempty"`
 }
 
 // +kubebuilder:object:root=true
