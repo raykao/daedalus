@@ -204,7 +204,7 @@ func TestShutdownInflightCompletesBeforeTimeout(t *testing.T) {
 	}
 	defer acpClient.Close()
 
-	handler := NewHandler(acpClient, nil, "/workspace", noopLogger())
+	handler := NewHandler(acpClient, nil, "/workspace", noopLogger(), nil)
 	sm := NewShutdownManager(handler, 5*time.Second, noopLogger())
 
 	msgData := buildTestMessage("task-inflight-ok")
@@ -253,7 +253,7 @@ func TestShutdownInflightExceedsGracePeriod(t *testing.T) {
 	defer acpClient.Close()
 
 	gracePeriod := 150 * time.Millisecond
-	handler := NewHandler(acpClient, nil, "/workspace", noopLogger())
+	handler := NewHandler(acpClient, nil, "/workspace", noopLogger(), nil)
 	sm := NewShutdownManager(handler, gracePeriod, noopLogger())
 
 	msgData := buildTestMessage("task-inflight-stuck")
@@ -294,7 +294,7 @@ func TestShutdownCancelsACPSession(t *testing.T) {
 	defer acpClient.Close()
 
 	gracePeriod := 150 * time.Millisecond
-	handler := NewHandler(acpClient, nil, "/workspace", noopLogger())
+	handler := NewHandler(acpClient, nil, "/workspace", noopLogger(), nil)
 	sm := NewShutdownManager(handler, gracePeriod, noopLogger())
 
 	msgData := buildTestMessage("task-cancel-check")

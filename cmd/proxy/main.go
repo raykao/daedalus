@@ -113,7 +113,7 @@ func main() {
 
 	// Create handler. Mark it as already initialized so Handle does not call
 	// Initialize again on the first message - we already initialized above.
-	handler := proxy.NewHandler(acpClient, publisher, *workDir, logger)
+	handler := proxy.NewHandler(acpClient, publisher, *workDir, logger, nil)
 	handler.SetInitialized()
 
 	// Create handler and shutdown manager

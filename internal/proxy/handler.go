@@ -11,6 +11,7 @@ import (
 
 	"github.com/raykao/agent-forge/internal/a2a"
 	"github.com/raykao/agent-forge/internal/acp"
+	contextmgmt "github.com/raykao/agent-forge/internal/contextmgmt"
 	"github.com/raykao/agent-forge/internal/queue"
 )
 
@@ -19,10 +20,11 @@ const sessionCancelTimeout = 5 * time.Second
 
 // Handler orchestrates the dequeue -> ACP -> publish flow
 type Handler struct {
-	acpClient *acp.Client
-	publisher *queue.Publisher
-	workDir   string
-	logger    *slog.Logger
+	acpClient      *acp.Client
+	publisher      *queue.Publisher
+	workDir        string
+	logger         *slog.Logger
+	contextTracker *contextmgmt.Tracker
 
 	// shuttingDown is set to true before Shutdown waits on the WaitGroup.
 	// Handle checks this flag before calling wg.Add to avoid a panic on
@@ -43,17 +45,19 @@ type Handler struct {
 	wg sync.WaitGroup
 }
 
-// NewHandler creates a new proxy handler
-func NewHandler(acpClient *acp.Client, publisher *queue.Publisher, workDir string, logger *slog.Logger) *Handler {
+// NewHandler creates a new proxy handler. The tracker parameter is optional;
+// if nil, context usage tracking is disabled.
+func NewHandler(acpClient *acp.Client, publisher *queue.Publisher, workDir string, logger *slog.Logger, tracker *contextmgmt.Tracker) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Handler{
-		acpClient: acpClient,
-		publisher: publisher,
-		workDir:   workDir,
-		logger:    logger,
-		sessions:  make(map[string]struct{}),
+		acpClient:      acpClient,
+		publisher:      publisher,
+		workDir:        workDir,
+		logger:         logger,
+		contextTracker: tracker,
+		sessions:       make(map[string]struct{}),
 	}
 }
 
@@ -114,8 +118,19 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		return h.fail(ctx, taskID, fmt.Errorf("proxy: acp session/new: %w", err))
 	}
 	h.registerSession(sessionID)
-	defer h.deregisterSession(sessionID)
+	defer func() {
+		h.deregisterSession(sessionID)
+		if h.contextTracker != nil {
+			h.contextTracker.EndSession(sessionID)
+		}
+	}()
 	h.logger.Info("proxy: acp session created", "sessionId", sessionID, "taskId", taskID)
+
+	if h.contextTracker != nil {
+		// TODO(phase3.3): Populate tokenLimit from model config once ACP
+		// exposes the model's context window size in the initialize response.
+		h.contextTracker.StartSession(sessionID, taskID, 0)
+	}
 
 	// Extract prompt from message parts
 	prompt := req.Message.ExtractPromptText()
@@ -134,6 +149,14 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		"sessionId", sessionID,
 		"contentLength", len(content),
 	)
+
+	if h.contextTracker != nil {
+		// Forward approximate token count based on content length.
+		// Real token counting requires model-specific tokenizer; content length
+		// is a reasonable proxy (1 token ~ 4 chars for English text).
+		approxTokens := int64(len(prompt)+len(content)) / 4
+		h.contextTracker.UpdateTokens(sessionID, approxTokens)
+	}
 
 	// Build A2A Task result
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -159,6 +182,23 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 			Timestamp: now,
 		},
 		Artifacts: []a2a.Artifact{artifact},
+	}
+
+	if h.contextTracker != nil {
+		if metrics, ok := h.contextTracker.GetMetrics(sessionID); ok {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]any)
+			}
+			contextUsage := map[string]any{
+				"currentTokens":   metrics.CurrentTokens,
+				"turnCount":       metrics.TurnCount,
+				"compactionCount": metrics.CompactionCount,
+			}
+			if metrics.TokenLimit > 0 {
+				contextUsage["usagePercent"] = metrics.UsagePercent()
+			}
+			task.Metadata["contextUsage"] = contextUsage
+		}
 	}
 
 	// Publish result
