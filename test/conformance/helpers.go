@@ -276,7 +276,9 @@ func newReferenceHandler() http.Handler {
 		ct := r.Header.Get("Content-Type")
 		mediaType, _, _ := mime.ParseMediaType(ct)
 		if mediaType != "application/json" {
-			http.Error(w, `{"error":"unsupported content type"}`, http.StatusUnsupportedMediaType)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			w.Write([]byte(`{"error":"unsupported content type"}`))
 			return
 		}
 
