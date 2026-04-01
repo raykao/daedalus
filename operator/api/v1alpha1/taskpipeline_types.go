@@ -20,42 +20,92 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// TaskPipelineSpec defines the desired state of TaskPipeline
+// TaskPipelineSpec defines the desired state of TaskPipeline.
+// A TaskPipeline declares multi-step workflow routing: fan-out/fan-in,
+// dependency ordering, and result aggregation. Novel to Agent Forge (no kagent equivalent).
 type TaskPipelineSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of TaskPipeline. Edit taskpipeline_types.go to remove/update
+	// description is a human-readable description of this pipeline.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Description string `json:"description,omitempty"`
+
+	// stages defines the ordered list of pipeline stages.
+	// Stages execute sequentially; tasks within a stage can fan out in parallel.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	Stages []PipelineStage `json:"stages"`
+
+	// resultStrategy defines how to aggregate results from all stages.
+	// +kubebuilder:validation:Enum=Last;Merge;Custom
+	// +kubebuilder:default=Last
+	// +optional
+	ResultStrategy string `json:"resultStrategy,omitempty"`
+
+	// timeout is the maximum duration for the entire pipeline.
+	// +kubebuilder:default="30m"
+	// +optional
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// PipelineStage defines a group of tasks that execute together within a pipeline.
+type PipelineStage struct {
+	// name identifies this stage (unique within the pipeline).
+	// +required
+	Name string `json:"name"`
+
+	// tasks lists the tasks to dispatch in this stage.
+	// Multiple tasks in a single stage execute in parallel (fan-out).
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	Tasks []PipelineTask `json:"tasks"`
+
+	// dependsOn lists stage names that must complete before this stage starts.
+	// +optional
+	DependsOn []string `json:"dependsOn,omitempty"`
+}
+
+// PipelineTask defines a single task within a pipeline stage.
+type PipelineTask struct {
+	// name identifies this task (unique within the stage).
+	// +required
+	Name string `json:"name"`
+
+	// agentRuntimeRef references the AgentRuntime that handles this task.
+	// +required
+	AgentRuntimeRef TypedReference `json:"agentRuntimeRef"`
+
+	// skillID routes to a specific skill on the target agent.
+	// +optional
+	SkillID string `json:"skillID,omitempty"`
+
+	// prompt is the task prompt template. Supports {{.PreviousStageOutput}} interpolation.
+	// +optional
+	Prompt string `json:"prompt,omitempty"`
+
+	// timeout is the maximum duration for this individual task.
+	// +kubebuilder:default="10m"
+	// +optional
+	Timeout string `json:"timeout,omitempty"`
 }
 
 // TaskPipelineStatus defines the observed state of TaskPipeline.
 type TaskPipelineStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the TaskPipeline resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// observedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// stageCount is the total number of stages in this pipeline.
+	// +optional
+	StageCount int32 `json:"stageCount,omitempty"`
+
+	// taskCount is the total number of tasks across all stages.
+	// +optional
+	TaskCount int32 `json:"taskCount,omitempty"`
 }
 
 // +kubebuilder:object:root=true

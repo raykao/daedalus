@@ -20,42 +20,56 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// ModelConfigSpec defines the desired state of ModelConfig
+// ModelConfigSpec defines the desired state of ModelConfig.
+// A ModelConfig represents LLM provider configuration: API keys, model parameters,
+// and endpoint settings. Secret hash tracking in status enables credential rotation detection.
 type ModelConfigSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// provider identifies the LLM provider (e.g., "github-copilot", "openai", "anthropic", "bedrock").
+	// +required
+	Provider string `json:"provider"`
 
-	// foo is an example field of ModelConfig. Edit modelconfig_types.go to remove/update
+	// model is the model identifier (e.g., "gpt-4o", "claude-sonnet-4-20250514", "copilot").
+	// +required
+	Model string `json:"model"`
+
+	// apiEndpoint is the provider API base URL. Omit for default provider endpoints.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	APIEndpoint string `json:"apiEndpoint,omitempty"`
+
+	// apiKey provides the API key via inline value or secret reference.
+	// +optional
+	APIKey *ValueRef `json:"apiKey,omitempty"`
+
+	// parameters are model-specific parameters (temperature, max_tokens, etc.).
+	// +optional
+	Parameters map[string]string `json:"parameters,omitempty"`
+
+	// headers are additional HTTP headers sent with API requests.
+	// +optional
+	Headers []ValueRef `json:"headers,omitempty"`
+
+	// allowedNamespaces defines which namespaces may reference this ModelConfig.
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.
 type ModelConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the ModelConfig resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// secretHash is a SHA-256 hash of the referenced secret data.
+	// The controller reconciles downstream AgentRuntimes when this hash changes,
+	// enabling automatic credential rotation propagation.
+	// +optional
+	SecretHash string `json:"secretHash,omitempty"`
+
+	// observedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true

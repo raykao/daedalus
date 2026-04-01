@@ -20,42 +20,71 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// MCPProtocol specifies the MCP transport protocol.
+// +kubebuilder:validation:Enum=SSE;StreamableHTTP;Stdio
+type MCPProtocol string
 
-// MCPServerSpec defines the desired state of MCPServer
+const (
+	// MCPProtocolSSE uses Server-Sent Events transport.
+	MCPProtocolSSE MCPProtocol = "SSE"
+
+	// MCPProtocolStreamableHTTP uses Streamable HTTP transport.
+	MCPProtocolStreamableHTTP MCPProtocol = "StreamableHTTP"
+
+	// MCPProtocolStdio uses standard I/O transport (sidecar process).
+	MCPProtocolStdio MCPProtocol = "Stdio"
+)
+
+// MCPServerSpec defines the desired state of MCPServer.
+// An MCPServer represents a shared MCP tool server that agent runtimes can consume.
 type MCPServerSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// protocol specifies the MCP transport (SSE, StreamableHTTP, or Stdio).
+	// +kubebuilder:default=StreamableHTTP
+	// +required
+	Protocol MCPProtocol `json:"protocol"`
 
-	// foo is an example field of MCPServer. Edit mcpserver_types.go to remove/update
+	// url is the MCP server endpoint URL (for SSE or StreamableHTTP protocols).
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	URL string `json:"url,omitempty"`
+
+	// command is the command to run for Stdio protocol MCP servers.
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// headers are HTTP headers sent with MCP requests (e.g., authentication).
+	// Uses ValueRef for flexible value resolution (inline, ConfigMap, Secret).
+	// +optional
+	Headers []ValueRef `json:"headers,omitempty"`
+
+	// tools lists the tool names this MCP server provides.
+	// Used for routing and discovery.
+	// +optional
+	Tools []string `json:"tools,omitempty"`
+
+	// description is a human-readable description of this MCP server.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// allowedNamespaces defines which namespaces may reference this MCPServer.
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer.
 type MCPServerStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the MCPServer resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// observedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// availableTools lists the tools discovered from the MCP server.
+	// +optional
+	AvailableTools []string `json:"availableTools,omitempty"`
 }
 
 // +kubebuilder:object:root=true
