@@ -301,7 +301,10 @@ func TestHandlerContextTracking(t *testing.T) {
 	}
 
 	// Create tracker with known config
-	tracker := contextmgmt.NewTracker(contextmgmt.DefaultConfig(), nil)
+	tracker, err := contextmgmt.NewTracker(contextmgmt.DefaultConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler := NewHandler(acpClient, publisher, "/workspace", nil, tracker)
 
 	// Build test request

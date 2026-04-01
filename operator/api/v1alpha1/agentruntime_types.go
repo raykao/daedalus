@@ -241,6 +241,7 @@ type ContextManagementSpec struct {
 
 	// overlapSize is the number of events to overlap between compacted and retained
 	// segments, ensuring continuity across compaction boundaries.
+	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=2
 	// +optional
 	OverlapSize int32 `json:"overlapSize,omitempty"`

@@ -49,7 +49,10 @@ func TestNeedsCompaction(t *testing.T) {
 }
 
 func TestTrackerSessionLifecycle(t *testing.T) {
-	tracker := NewTracker(DefaultConfig(), nil)
+	tracker, err := NewTracker(DefaultConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Start session
 	tracker.StartSession("sess-1", "task-1", 128000)
@@ -91,14 +94,20 @@ func TestTrackerSessionLifecycle(t *testing.T) {
 }
 
 func TestTrackerUpdateNonexistentSession(t *testing.T) {
-	tracker := NewTracker(DefaultConfig(), nil)
+	tracker, err := NewTracker(DefaultConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Should not panic
 	tracker.UpdateTokens("nonexistent", 50000)
 	tracker.RecordCompaction("nonexistent")
 }
 
 func TestResurrectionStrategy(t *testing.T) {
-	tracker := NewTracker(DefaultConfig(), nil) // defaults: full<60, checkpoint<90
+	tracker, err := NewTracker(DefaultConfig(), nil) // defaults: full<60, checkpoint<90
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name  string
@@ -130,7 +139,10 @@ func TestResurrectionStrategyCustomThresholds(t *testing.T) {
 		ResurrectionFullThreshold:       40,
 		ResurrectionCheckpointThreshold: 70,
 	}
-	tracker := NewTracker(cfg, nil)
+	tracker, err := NewTracker(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if got := tracker.SelectResurrectionStrategy(39); got != StrategyFull {
 		t.Errorf("expected full at 39%%, got %s", got)
@@ -146,7 +158,10 @@ func TestResurrectionStrategyCustomThresholds(t *testing.T) {
 func TestCheckCompaction(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.TokenThreshold = 80000
-	tracker := NewTracker(cfg, nil)
+	tracker, err := NewTracker(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	tracker.StartSession("sess-low", "task-1", 128000)
 	tracker.UpdateTokens("sess-low", 50000)
@@ -164,7 +179,10 @@ func TestCheckCompaction(t *testing.T) {
 }
 
 func TestResurrectionStrategyForSessionNotFound(t *testing.T) {
-	tracker := NewTracker(DefaultConfig(), nil)
+	tracker, err := NewTracker(DefaultConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	strategy, err := tracker.SelectResurrectionStrategyForSession("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent session")
@@ -175,7 +193,10 @@ func TestResurrectionStrategyForSessionNotFound(t *testing.T) {
 }
 
 func TestResurrectionStrategyForSession(t *testing.T) {
-	tracker := NewTracker(DefaultConfig(), nil)
+	tracker, err := NewTracker(DefaultConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Start a session with known token limit and update tokens to 40% usage
 	tracker.StartSession("sess-test", "task-test", 100000)
@@ -209,5 +230,27 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.CompactionInterval != "5m" {
 		t.Errorf("expected default CompactionInterval 5m, got %s", cfg.CompactionInterval)
+	}
+}
+
+func TestNewTrackerInvalidThresholds(t *testing.T) {
+	cfg := Config{
+		ResurrectionFullThreshold:       90,
+		ResurrectionCheckpointThreshold: 60,
+	}
+	_, err := NewTracker(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for fullThreshold >= checkpointThreshold")
+	}
+}
+
+func TestNewTrackerEqualThresholds(t *testing.T) {
+	cfg := Config{
+		ResurrectionFullThreshold:       60,
+		ResurrectionCheckpointThreshold: 60,
+	}
+	_, err := NewTracker(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for fullThreshold == checkpointThreshold")
 	}
 }

@@ -127,7 +127,9 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 	h.logger.Info("proxy: acp session created", "sessionId", sessionID, "taskId", taskID)
 
 	if h.contextTracker != nil {
-		h.contextTracker.StartSession(sessionID, taskID, 0) // tokenLimit TBD from model config
+		// TODO(phase3.3): Populate tokenLimit from model config once ACP
+		// exposes the model's context window size in the initialize response.
+		h.contextTracker.StartSession(sessionID, taskID, 0)
 	}
 
 	// Extract prompt from message parts
@@ -187,12 +189,15 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 			if task.Metadata == nil {
 				task.Metadata = make(map[string]any)
 			}
-			task.Metadata["contextUsage"] = map[string]any{
+			contextUsage := map[string]any{
 				"currentTokens":   metrics.CurrentTokens,
-				"usagePercent":    metrics.UsagePercent(),
 				"turnCount":       metrics.TurnCount,
 				"compactionCount": metrics.CompactionCount,
 			}
+			if metrics.TokenLimit > 0 {
+				contextUsage["usagePercent"] = metrics.UsagePercent()
+			}
+			task.Metadata["contextUsage"] = contextUsage
 		}
 	}
 

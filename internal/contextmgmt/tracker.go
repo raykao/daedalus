@@ -88,8 +88,14 @@ type Tracker struct {
 	sessions map[string]*SessionMetrics
 }
 
-// NewTracker creates a Tracker with the given config.
-func NewTracker(config Config, logger *slog.Logger) *Tracker {
+// NewTracker creates a Tracker with the given config. It returns an error if
+// the resurrection thresholds are misconfigured (fullThreshold must be less
+// than checkpointThreshold).
+func NewTracker(config Config, logger *slog.Logger) (*Tracker, error) {
+	if config.ResurrectionFullThreshold >= config.ResurrectionCheckpointThreshold {
+		return nil, fmt.Errorf("contextmgmt: fullThreshold (%d) must be less than checkpointThreshold (%d)",
+			config.ResurrectionFullThreshold, config.ResurrectionCheckpointThreshold)
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -97,7 +103,7 @@ func NewTracker(config Config, logger *slog.Logger) *Tracker {
 		config:   config,
 		logger:   logger,
 		sessions: make(map[string]*SessionMetrics),
-	}
+	}, nil
 }
 
 // StartSession begins tracking a new session.

@@ -705,10 +705,14 @@ func contextManagementEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 		return nil
 	}
 	cm := rt.Spec.ContextManagement
+	compactionInterval := cm.CompactionInterval
+	if compactionInterval == "" {
+		compactionInterval = "5m"
+	}
 	envs := []interface{}{
 		map[string]interface{}{
 			"name":  "CONTEXT_COMPACTION_INTERVAL",
-			"value": cm.CompactionInterval,
+			"value": compactionInterval,
 		},
 		map[string]interface{}{
 			"name":  "CONTEXT_TOKEN_THRESHOLD",
@@ -745,8 +749,12 @@ func contextManagementEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvV
 		return nil
 	}
 	cm := rt.Spec.ContextManagement
+	compactionInterval := cm.CompactionInterval
+	if compactionInterval == "" {
+		compactionInterval = "5m"
+	}
 	envs := []corev1.EnvVar{
-		{Name: "CONTEXT_COMPACTION_INTERVAL", Value: cm.CompactionInterval},
+		{Name: "CONTEXT_COMPACTION_INTERVAL", Value: compactionInterval},
 		{Name: "CONTEXT_TOKEN_THRESHOLD", Value: fmt.Sprintf("%d", cm.TokenThreshold)},
 		{Name: "CONTEXT_EVENT_RETENTION_SIZE", Value: fmt.Sprintf("%d", cm.EventRetentionSize)},
 		{Name: "CONTEXT_OVERLAP_SIZE", Value: fmt.Sprintf("%d", cm.OverlapSize)},
