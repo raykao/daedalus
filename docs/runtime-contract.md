@@ -70,6 +70,7 @@ The primary endpoint. The proxy forwards one task at a time.
 | Code | Meaning |
 |------|---------|
 | 200 | Task processed (check `status.state` for outcome) |
+| 400 | Malformed request body (invalid JSON) |
 | 503 | Server shutting down or not ready |
 
 ### GET /.well-known/agent-card.json — Discovery
