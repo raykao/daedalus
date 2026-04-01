@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "could not determine test file location")
 		os.Exit(1)
 	}
-	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 	multiRuntimeComposeFile = filepath.Join(repoRoot, "deploy", "docker", "docker-compose.multi-runtime.yml")
 
 	if err := buildMultiRuntimeImages(); err != nil {
