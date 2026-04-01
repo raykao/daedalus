@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-forge/schemas/runtime-contract.schema.json",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "runtime",
+    "server",
+    "capabilities",
+    "conformanceLevel"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["v1"],
+      "description": "The runtime contract version this manifest targets"
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Runtime name identifier"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Runtime version (semver recommended)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the runtime"
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "required": ["port", "healthPath", "agentCardPath", "taskPath"],
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port the A2A HTTP server listens on"
+        },
+        "healthPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path for the health check endpoint"
+        },
+        "agentCardPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path for the AgentCard discovery endpoint"
+        },
+        "taskPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path for the task execution endpoint"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["streaming", "traceContext", "gracefulShutdown"],
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Whether the runtime supports SSE streaming responses"
+        },
+        "traceContext": {
+          "type": "boolean",
+          "description": "Whether the runtime propagates W3C Traceparent headers"
+        },
+        "gracefulShutdown": {
+          "type": "boolean",
+          "description": "Whether the runtime handles SIGTERM gracefully"
+        },
+        "contextCompaction": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the runtime supports context compaction reporting"
+        }
+      }
+    },
+    "conformanceLevel": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "Declared conformance level (1=minimal, 2=production, 3=full)"
+    }
+  }
+}
