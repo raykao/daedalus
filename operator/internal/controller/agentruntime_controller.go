@@ -75,10 +75,11 @@ var scaledJobGVK = schema.GroupVersionKind{
 
 // agentRegistryEntry is the JSON structure stored in the agent registry ConfigMap.
 type agentRegistryEntry struct {
-	Card         interface{} `json:"card"`
-	QueueSubject string      `json:"queueSubject"`
-	Runtime      string      `json:"runtime"`
-	ACPPort      int32       `json:"acpPort"`
+	Card              interface{} `json:"card"`
+	QueueSubject      string      `json:"queueSubject"`
+	Runtime           string      `json:"runtime"`
+	ACPPort           int32       `json:"acpPort"`
+	ContextManagement interface{} `json:"contextManagement,omitempty"`
 }
 
 // AgentRuntimeReconciler reconciles a AgentRuntime object
@@ -520,6 +521,22 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 	}
 
 	// Proxy sidecar container.
+	proxyEnv := []interface{}{
+		map[string]interface{}{
+			"name":  "AGENT_PORT",
+			"value": fmt.Sprintf("%d", port),
+		},
+		map[string]interface{}{
+			"name":  "NATS_SUBJECT",
+			"value": rt.Spec.Queue.Subject,
+		},
+		map[string]interface{}{
+			"name":  "NATS_STREAM",
+			"value": queueStream(rt),
+		},
+	}
+	proxyEnv = append(proxyEnv, contextManagementEnvVars(rt)...)
+
 	proxyContainer := map[string]interface{}{
 		"name":  "proxy",
 		"image": proxyImage,
@@ -530,20 +547,7 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 				"protocol":      "TCP",
 			},
 		},
-		"env": []interface{}{
-			map[string]interface{}{
-				"name":  "AGENT_PORT",
-				"value": fmt.Sprintf("%d", port),
-			},
-			map[string]interface{}{
-				"name":  "NATS_SUBJECT",
-				"value": rt.Spec.Queue.Subject,
-			},
-			map[string]interface{}{
-				"name":  "NATS_STREAM",
-				"value": queueStream(rt),
-			},
-		},
+		"env": proxyEnv,
 	}
 
 	// Build pod spec.
@@ -645,11 +649,11 @@ func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime,
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: []corev1.EnvVar{
+		Env: append([]corev1.EnvVar{
 			{Name: "AGENT_PORT", Value: fmt.Sprintf("%d", port)},
 			{Name: "NATS_SUBJECT", Value: rt.Spec.Queue.Subject},
 			{Name: "NATS_STREAM", Value: queueStream(rt)},
-		},
+		}, contextManagementEnvVarsTyped(rt)...),
 	}
 
 	return []corev1.Container{agentContainer, proxyContainer}, nil
@@ -683,12 +687,77 @@ func (r *AgentRuntimeReconciler) buildRegistryJSON(rt *forgev1alpha1.AgentRuntim
 		Runtime:      string(rt.Spec.Type),
 		ACPPort:      port,
 	}
+	if rt.Spec.ContextManagement != nil {
+		entry.ContextManagement = rt.Spec.ContextManagement
+	}
 
 	data, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshalling registry entry: %w", err)
 	}
 	return string(data), nil
+}
+
+// contextManagementEnvVars returns context management env vars as []interface{}
+// for the unstructured ScaledJob path. Returns nil if context management is not configured.
+func contextManagementEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
+	if rt.Spec.ContextManagement == nil {
+		return nil
+	}
+	cm := rt.Spec.ContextManagement
+	envs := []interface{}{
+		map[string]interface{}{
+			"name":  "CONTEXT_COMPACTION_INTERVAL",
+			"value": cm.CompactionInterval,
+		},
+		map[string]interface{}{
+			"name":  "CONTEXT_TOKEN_THRESHOLD",
+			"value": fmt.Sprintf("%d", cm.TokenThreshold),
+		},
+		map[string]interface{}{
+			"name":  "CONTEXT_EVENT_RETENTION_SIZE",
+			"value": fmt.Sprintf("%d", cm.EventRetentionSize),
+		},
+		map[string]interface{}{
+			"name":  "CONTEXT_OVERLAP_SIZE",
+			"value": fmt.Sprintf("%d", cm.OverlapSize),
+		},
+	}
+	if cm.Resurrection != nil {
+		envs = append(envs,
+			map[string]interface{}{
+				"name":  "CONTEXT_RESURRECTION_FULL_THRESHOLD",
+				"value": fmt.Sprintf("%d", cm.Resurrection.FullThreshold),
+			},
+			map[string]interface{}{
+				"name":  "CONTEXT_RESURRECTION_CHECKPOINT_THRESHOLD",
+				"value": fmt.Sprintf("%d", cm.Resurrection.CheckpointThreshold),
+			},
+		)
+	}
+	return envs
+}
+
+// contextManagementEnvVarsTyped returns context management env vars as []corev1.EnvVar
+// for the typed Deployment path. Returns nil if context management is not configured.
+func contextManagementEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
+	if rt.Spec.ContextManagement == nil {
+		return nil
+	}
+	cm := rt.Spec.ContextManagement
+	envs := []corev1.EnvVar{
+		{Name: "CONTEXT_COMPACTION_INTERVAL", Value: cm.CompactionInterval},
+		{Name: "CONTEXT_TOKEN_THRESHOLD", Value: fmt.Sprintf("%d", cm.TokenThreshold)},
+		{Name: "CONTEXT_EVENT_RETENTION_SIZE", Value: fmt.Sprintf("%d", cm.EventRetentionSize)},
+		{Name: "CONTEXT_OVERLAP_SIZE", Value: fmt.Sprintf("%d", cm.OverlapSize)},
+	}
+	if cm.Resurrection != nil {
+		envs = append(envs,
+			corev1.EnvVar{Name: "CONTEXT_RESURRECTION_FULL_THRESHOLD", Value: fmt.Sprintf("%d", cm.Resurrection.FullThreshold)},
+			corev1.EnvVar{Name: "CONTEXT_RESURRECTION_CHECKPOINT_THRESHOLD", Value: fmt.Sprintf("%d", cm.Resurrection.CheckpointThreshold)},
+		)
+	}
+	return envs
 }
 
 // --- Helper functions ---
