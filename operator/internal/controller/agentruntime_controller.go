@@ -760,27 +760,28 @@ func buildEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
 	var envs []corev1.EnvVar
 	for _, v := range rt.Spec.Env {
 		if v.ValueFrom != nil {
-			ev := corev1.EnvVar{Name: v.Name}
 			if v.ValueFrom.SecretKeyRef != nil {
-				ev.ValueFrom = &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: v.ValueFrom.SecretKeyRef.Name,
+				envs = append(envs, corev1.EnvVar{
+					Name: v.Name,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: v.ValueFrom.SecretKeyRef.Name},
+							Key:                  v.ValueFrom.SecretKeyRef.Key,
 						},
-						Key: v.ValueFrom.SecretKeyRef.Key,
 					},
-				}
+				})
 			} else if v.ValueFrom.ConfigMapKeyRef != nil {
-				ev.ValueFrom = &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: v.ValueFrom.ConfigMapKeyRef.Name,
+				envs = append(envs, corev1.EnvVar{
+					Name: v.Name,
+					ValueFrom: &corev1.EnvVarSource{
+						ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: v.ValueFrom.ConfigMapKeyRef.Name},
+							Key:                  v.ValueFrom.ConfigMapKeyRef.Key,
 						},
-						Key: v.ValueFrom.ConfigMapKeyRef.Key,
 					},
-				}
+				})
 			}
-			envs = append(envs, ev)
+			// If neither ref is set, drop the env var (same as ScaledJob path)
 		} else {
 			envs = append(envs, corev1.EnvVar{
 				Name:  v.Name,

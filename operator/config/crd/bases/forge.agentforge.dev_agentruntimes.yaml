@@ -1,0 +1,631 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: agentruntimes.forge.agentforge.dev
+spec:
+  group: forge.agentforge.dev
+  names:
+    kind: AgentRuntime
+    listKind: AgentRuntimeList
+    plural: agentruntimes
+    singular: agentruntime
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AgentRuntime is the Schema for the agentruntimes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of AgentRuntime
+            properties:
+              agentCard:
+                description: |-
+                  agentCard is an inline AgentCard for capability discovery.
+                  Mutually exclusive with agentCardRef.
+                properties:
+                  capabilities:
+                    description: capabilities describes protocol-level capabilities.
+                    properties:
+                      pushNotifications:
+                        default: false
+                        description: pushNotifications indicates push notification
+                          support.
+                        type: boolean
+                      streaming:
+                        default: false
+                        description: streaming indicates SSE streaming support.
+                        type: boolean
+                    type: object
+                  defaultInputModes:
+                    default:
+                    - text/plain
+                    description: defaultInputModes lists supported input content types.
+                    items:
+                      type: string
+                    type: array
+                  defaultOutputModes:
+                    default:
+                    - text/plain
+                    description: defaultOutputModes lists supported output content
+                      types.
+                    items:
+                      type: string
+                    type: array
+                  description:
+                    description: description is a human-readable description of the
+                      agent.
+                    type: string
+                  name:
+                    description: name is the agent's display name.
+                    type: string
+                  skills:
+                    description: skills lists the agent's capabilities.
+                    items:
+                      description: SkillSpec describes a single agent capability.
+                      properties:
+                        description:
+                          description: description describes what the skill does.
+                          type: string
+                        examples:
+                          description: examples are example prompts that demonstrate
+                            the skill.
+                          items:
+                            type: string
+                          type: array
+                        id:
+                          description: id is the unique skill identifier.
+                          type: string
+                        name:
+                          description: name is the human-readable skill name.
+                          type: string
+                        tags:
+                          description: tags categorize the skill for routing.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - description
+                      - id
+                      - name
+                      type: object
+                    type: array
+                  version:
+                    default: 1.0.0
+                    description: version is the agent version.
+                    type: string
+                required:
+                - description
+                - name
+                type: object
+              agentCardRef:
+                description: |-
+                  agentCardRef references a standalone AgentCard CR.
+                  Mutually exclusive with agentCard.
+                properties:
+                  apiGroup:
+                    description: apiGroup is the API group of the referenced resource.
+                    type: string
+                  kind:
+                    description: kind is the Kubernetes resource kind (e.g., "ModelConfig",
+                      "MCPServer").
+                    type: string
+                  name:
+                    description: name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      namespace is the namespace of the referenced resource.
+                      If empty, defaults to the namespace of the referencing resource.
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+              allowedNamespaces:
+                description: allowedNamespaces defines which namespaces may reference
+                  this AgentRuntime.
+                properties:
+                  from:
+                    default: Same
+                    description: from specifies the namespace scope.
+                    enum:
+                    - All
+                    - Same
+                    - Selector
+                    type: string
+                  selector:
+                    description: selector is a label selector for namespaces. Only
+                      used when from=Selector.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - from
+                type: object
+              conformanceLevel:
+                default: Level1
+                description: |-
+                  conformanceLevel declares the A2A contract conformance level.
+                  Level1=minimal (health+AgentCard+task), Level2=production (+SIGTERM+logging+OTel),
+                  Level3=full (+streaming+context compaction+session resume).
+                enum:
+                - Level1
+                - Level2
+                - Level3
+                type: string
+              container:
+                description: container defines the agent runtime container configuration.
+                properties:
+                  image:
+                    description: image is the container image reference (e.g., "ghcr.io/raykao/my-agent:v1").
+                    type: string
+                  imagePullPolicy:
+                    default: IfNotPresent
+                    description: imagePullPolicy specifies when to pull the container
+                      image.
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
+                    type: string
+                  imagePullSecrets:
+                    description: imagePullSecrets lists secrets for pulling from private
+                      registries.
+                    items:
+                      type: string
+                    type: array
+                  port:
+                    default: 8080
+                    description: port is the A2A server port inside the container.
+                    format: int32
+                    type: integer
+                  resources:
+                    description: resources defines CPU/memory requests and limits.
+                    properties:
+                      limits:
+                        description: limits defines maximum resources.
+                        properties:
+                          cpu:
+                            description: cpu is the CPU amount (e.g., "100m", "0.5",
+                              "2").
+                            type: string
+                          memory:
+                            description: memory is the memory amount (e.g., "128Mi",
+                              "1Gi").
+                            type: string
+                        type: object
+                      requests:
+                        description: requests defines minimum resources.
+                        properties:
+                          cpu:
+                            description: cpu is the CPU amount (e.g., "100m", "0.5",
+                              "2").
+                            type: string
+                          memory:
+                            description: memory is the memory amount (e.g., "128Mi",
+                              "1Gi").
+                            type: string
+                        type: object
+                    type: object
+                  startupTimeout:
+                    default: 60s
+                    description: startupTimeout is how long to wait for the agent's
+                      /health endpoint.
+                    type: string
+                  terminationGracePeriod:
+                    default: 30s
+                    description: terminationGracePeriod is the SIGTERM grace period.
+                    type: string
+                  workDir:
+                    default: /workspace
+                    description: workDir is the writable working directory mounted
+                      into the container.
+                    type: string
+                required:
+                - image
+                type: object
+              contextManagement:
+                description: contextManagement configures context window compression
+                  (Level 3 only).
+                properties:
+                  compactionInterval:
+                    default: 5m
+                    description: compactionInterval is how often to check for context
+                      compaction needs.
+                    type: string
+                  eventRetentionSize:
+                    default: 50
+                    description: eventRetentionSize is the number of recent events
+                      to keep after compaction.
+                    format: int32
+                    type: integer
+                  summarizer:
+                    description: summarizer configures the model used for context
+                      summarization.
+                    properties:
+                      apiGroup:
+                        description: apiGroup is the API group of the referenced resource.
+                        type: string
+                      kind:
+                        description: kind is the Kubernetes resource kind (e.g., "ModelConfig",
+                          "MCPServer").
+                        type: string
+                      name:
+                        description: name is the name of the referenced resource.
+                        type: string
+                      namespace:
+                        description: |-
+                          namespace is the namespace of the referenced resource.
+                          If empty, defaults to the namespace of the referencing resource.
+                        type: string
+                    required:
+                    - apiGroup
+                    - kind
+                    - name
+                    type: object
+                  tokenThreshold:
+                    default: 100000
+                    description: tokenThreshold triggers compaction when token count
+                      exceeds this value.
+                    format: int64
+                    type: integer
+                type: object
+              env:
+                description: env specifies additional environment variables for the
+                  runtime container.
+                items:
+                  description: |-
+                    ValueRef provides a flexible way to specify configuration values.
+                    Values can be inline, from a ConfigMap, or from a Secret.
+                  properties:
+                    name:
+                      description: name is the key name for this value (e.g., "api-key",
+                        "model-name").
+                      type: string
+                    value:
+                      description: value is an inline string value. Mutually exclusive
+                        with valueFrom.
+                      type: string
+                    valueFrom:
+                      description: valueFrom specifies a source for the value. Mutually
+                        exclusive with value.
+                      properties:
+                        configMapKeyRef:
+                          description: configMapKeyRef selects a key from a ConfigMap.
+                          properties:
+                            key:
+                              description: key is the key within the ConfigMap or
+                                Secret.
+                              type: string
+                            name:
+                              description: name is the name of the ConfigMap or Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        secretKeyRef:
+                          description: secretKeyRef selects a key from a Secret.
+                          properties:
+                            key:
+                              description: key is the key within the ConfigMap or
+                                Secret.
+                              type: string
+                            name:
+                              description: name is the name of the ConfigMap or Secret.
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+              mcpServers:
+                description: mcpServers lists MCP tool servers available to this runtime.
+                items:
+                  description: |-
+                    TypedReference is a cross-resource reference with kind, apiGroup, name,
+                    and optional namespace. Adopted from kagent's pattern for type-safe,
+                    namespace-aware references between CRDs.
+                  properties:
+                    apiGroup:
+                      description: apiGroup is the API group of the referenced resource.
+                      type: string
+                    kind:
+                      description: kind is the Kubernetes resource kind (e.g., "ModelConfig",
+                        "MCPServer").
+                      type: string
+                    name:
+                      description: name is the name of the referenced resource.
+                      type: string
+                    namespace:
+                      description: |-
+                        namespace is the namespace of the referenced resource.
+                        If empty, defaults to the namespace of the referencing resource.
+                      type: string
+                  required:
+                  - apiGroup
+                  - kind
+                  - name
+                  type: object
+                type: array
+              modelConfigRef:
+                description: modelConfigRef references a ModelConfig CR for LLM provider
+                  configuration.
+                properties:
+                  apiGroup:
+                    description: apiGroup is the API group of the referenced resource.
+                    type: string
+                  kind:
+                    description: kind is the Kubernetes resource kind (e.g., "ModelConfig",
+                      "MCPServer").
+                    type: string
+                  name:
+                    description: name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      namespace is the namespace of the referenced resource.
+                      If empty, defaults to the namespace of the referencing resource.
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+              queue:
+                description: queue binds this runtime to a NATS subject for task dispatch.
+                properties:
+                  durableName:
+                    description: durableName is the NATS durable consumer name. Defaults
+                      to the AgentRuntime name.
+                    type: string
+                  stream:
+                    default: AGENT_TASKS
+                    description: stream is the NATS JetStream stream name.
+                    type: string
+                  subject:
+                    description: subject is the NATS subject to consume from (e.g.,
+                      "agent.tasks.copilot").
+                    type: string
+                required:
+                - subject
+                type: object
+              scaling:
+                description: scaling configures how this runtime scales (KEDA ScaledJob
+                  or static replicas).
+                properties:
+                  keda:
+                    description: keda configures KEDA ScaledJob parameters (only used
+                      when mode=ScaledJob).
+                    properties:
+                      activationLagThreshold:
+                        default: "0"
+                        description: activationLagThreshold triggers scale-from-zero
+                          when lag exceeds this value.
+                        type: string
+                      activeDeadlineSeconds:
+                        default: 600
+                        description: activeDeadlineSeconds is the job timeout.
+                        format: int64
+                        type: integer
+                      backoffLimit:
+                        default: 2
+                        description: backoffLimit is the job retry count.
+                        format: int32
+                        type: integer
+                      lagThreshold:
+                        default: "1"
+                        description: lagThreshold triggers scale-up when queue lag
+                          exceeds this value.
+                        type: string
+                      maxReplicaCount:
+                        default: 5
+                        description: maxReplicaCount is the maximum number of job
+                          pods.
+                        format: int32
+                        type: integer
+                      pollingInterval:
+                        default: 15
+                        description: pollingInterval is how often KEDA checks the
+                          trigger source (seconds).
+                        format: int32
+                        type: integer
+                    type: object
+                  mode:
+                    default: ScaledJob
+                    description: mode selects the scaling strategy.
+                    enum:
+                    - Static
+                    - ScaledJob
+                    type: string
+                  replicas:
+                    default: 1
+                    description: replicas is the static replica count (only used when
+                      mode=Static).
+                    format: int32
+                    type: integer
+                required:
+                - mode
+                type: object
+              type:
+                default: BYO
+                description: |-
+                  type distinguishes platform-managed (Declarative) from user-provided (BYO) runtimes.
+                  Declarative runtimes use copilot-bridge + .agent.md files.
+                  BYO runtimes are user containers speaking A2A.
+                enum:
+                - Declarative
+                - BYO
+                type: string
+            required:
+            - conformanceLevel
+            - container
+            - queue
+            - type
+            type: object
+          status:
+            description: status defines the observed state of AgentRuntime
+            properties:
+              conditions:
+                description: conditions represent the current state of the AgentRuntime
+                  resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              configMapName:
+                description: configMapName is the name of the ConfigMap created for
+                  this runtime.
+                type: string
+              modelConfigHash:
+                description: |-
+                  modelConfigHash tracks the hash of the referenced ModelConfig's secrets
+                  to detect credential rotation.
+                type: string
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              readyReplicas:
+                description: readyReplicas is the number of pods that are ready and
+                  serving.
+                format: int32
+                type: integer
+              scaledJobName:
+                description: scaledJobName is the name of the KEDA ScaledJob created
+                  for this runtime.
+                type: string
+              serviceName:
+                description: serviceName is the name of the Service created for this
+                  runtime.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
