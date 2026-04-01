@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- forge_v1alpha1_agentruntime.yaml
+- forge_v1alpha1_modelconfig.yaml
+- forge_v1alpha1_mcpserver.yaml
+- forge_v1alpha1_taskpipeline.yaml
+- forge_v1alpha1_agentcard.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
