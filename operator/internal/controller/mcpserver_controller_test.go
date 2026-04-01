@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 var _ = Describe("MCPServer Controller", func() {
@@ -40,13 +40,13 @@ var _ = Describe("MCPServer Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		mcpserver := &forgev1alpha1.MCPServer{}
+		mcpserver := &daedalusv1alpha1.MCPServer{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind MCPServer")
 			err := k8sClient.Get(ctx, typeNamespacedName, mcpserver)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &forgev1alpha1.MCPServer{
+				resource := &daedalusv1alpha1.MCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,7 +59,7 @@ var _ = Describe("MCPServer Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &forgev1alpha1.MCPServer{}
+			resource := &daedalusv1alpha1.MCPServer{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 

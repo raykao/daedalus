@@ -2,13 +2,13 @@
 
 ## Overview
 
-The agent ecosystem has four distinct layers. Each project in the space occupies one or more of these layers. Understanding where each sits clarifies what Agent Forge provides, what users bring, and where protocols like ACP and A2A fit.
+The agent ecosystem has four distinct layers. Each project in the space occupies one or more of these layers. Understanding where each sits clarifies what Daedalus provides, what users bring, and where protocols like ACP and A2A fit.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Layer 3: ORCHESTRATION PLATFORM                                      │
 │   Queue dispatch, elastic scaling, discovery, observability          │
-│   Agent Forge, kagent                                                │
+│   Daedalus, kagent                                                │
 │                                                                       │
 │   Protocols: A2A (inter-agent), NATS (dispatch)                      │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -33,7 +33,7 @@ The agent ecosystem has four distinct layers. Each project in the space occupies
 
 Three protocols serve different relationships. The key distinction is where each protocol operates and what transport carries it:
 
-| Protocol | Relationship | Where Used | Transport | Role in Agent Forge |
+| Protocol | Relationship | Where Used | Transport | Role in Daedalus |
 |----------|-------------|-----------|-----------|-------------------|
 | **ACP** (Agent Client Protocol) | Client drives Agent | Intra-pod (proxy to agent) | stdio or TCP (JSON-RPC/NDJSON) | Proxy sidecar drives agent CLI |
 | **A2A** (Agent-to-Agent Protocol) | Peer agents collaborate | Inter-agent (orchestrator to workers) | **Data model on queue** (not HTTP) | Message envelope format on NATS |
@@ -148,7 +148,7 @@ These add capabilities on top of raw agent CLIs. They're optional - you can skip
 
 ### Layer 3: Orchestration Platforms
 
-#### Agent Forge (this project)
+#### Daedalus (this project)
 **What it adds:** Queue-based task dispatch (NATS JetStream), elastic scaling (KEDA ScaledJob, scale-to-zero), AgentCard discovery, structured branch naming, fan-out/fan-in pipelines, observability (OTel tracing).
 
 **Unique:** Runtime-agnostic. The proxy speaks ACP to any agent, A2A externally.
@@ -156,9 +156,9 @@ These add capabilities on top of raw agent CLIs. They're optional - you can skip
 #### kagent
 **What it adds:** K8s CRDs for agents (`Agent`, `ModelConfig`, `RemoteMCPServer`), Go controller with reconciliation, Google ADK engine, A2A inter-agent communication, Web UI, CLI.
 
-**Different from Agent Forge:** Interactive (not batch), long-running pods (not ephemeral), ADK-based (not pluggable runtime).
+**Different from Daedalus:** Interactive (not batch), long-running pods (not ephemeral), ADK-based (not pluggable runtime).
 
-## Where Each Layer 2 Fits in Agent Forge
+## Where Each Layer 2 Fits in Daedalus
 
 ```
 Worker Pod options:
@@ -196,7 +196,7 @@ Option D: Proxy → GasTown → CLIs (multi-agent coordination)
 
 **Option D** is for complex tasks where multiple agents need to coordinate during execution (not just fan-out from the orchestrator).
 
-## Implications for Agent Forge Design
+## Implications for Daedalus Design
 
 ### 1. The Proxy Speaks ACP, Not A2A, to the Agent
 

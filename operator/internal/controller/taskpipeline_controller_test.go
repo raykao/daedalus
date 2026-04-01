@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 var _ = Describe("TaskPipeline Controller", func() {
@@ -40,13 +40,13 @@ var _ = Describe("TaskPipeline Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		taskpipeline := &forgev1alpha1.TaskPipeline{}
+		taskpipeline := &daedalusv1alpha1.TaskPipeline{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind TaskPipeline")
 			err := k8sClient.Get(ctx, typeNamespacedName, taskpipeline)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &forgev1alpha1.TaskPipeline{
+				resource := &daedalusv1alpha1.TaskPipeline{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,7 +59,7 @@ var _ = Describe("TaskPipeline Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &forgev1alpha1.TaskPipeline{}
+			resource := &daedalusv1alpha1.TaskPipeline{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 

@@ -3,7 +3,7 @@ package contract
 import (
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 func TestA2AMessageFormat(t *testing.T) {

@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: taskpipelines.forge.agentforge.dev
+  name: taskpipelines.daedalus.dev
 spec:
-  group: forge.agentforge.dev
+  group: daedalus.dev
   names:
     kind: TaskPipeline
     listKind: TaskPipelineList

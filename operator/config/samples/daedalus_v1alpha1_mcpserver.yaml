@@ -1,11 +1,11 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: MCPServer
 metadata:
   name: github-tools
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   protocol: StreamableHTTP
-  url: http://github-mcp-server.agent-forge.svc:8080/mcp
+  url: http://github-mcp-server.daedalus.svc:8080/mcp
   description: "GitHub MCP server providing repository, issue, and PR tools"
   tools:
   - gh-repo-list

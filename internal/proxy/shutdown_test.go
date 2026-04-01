@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/acp"
+	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/acp"
 )
 
 // slowACPServer is an in-process TCP mock that handles ACP requests

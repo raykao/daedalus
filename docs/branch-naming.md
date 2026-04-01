@@ -1,6 +1,6 @@
 # Branch Naming Convention
 
-This document describes the structured branch naming convention used by agent-forge worker sessions.
+This document describes the structured branch naming convention used by daedalus worker sessions.
 
 ## Convention
 

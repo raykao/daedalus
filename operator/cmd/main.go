@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
-	"github.com/raykao/agent-forge/operator/internal/controller"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
+	"github.com/raykao/daedalus/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,7 +48,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(forgev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(daedalusv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -160,7 +160,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "3acd3b34.agentforge.dev",
+		LeaderElectionID:       "3acd3b34.daedalus.dev",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

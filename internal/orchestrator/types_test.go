@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/dispatch"
-	"github.com/raykao/agent-forge/internal/orchestrator"
+	"github.com/raykao/daedalus/internal/dispatch"
+	"github.com/raykao/daedalus/internal/orchestrator"
 )
 
 // ---------------------------------------------------------------------------

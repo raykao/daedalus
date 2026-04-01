@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/acp"
-	"github.com/raykao/agent-forge/internal/proxy"
-	"github.com/raykao/agent-forge/internal/queue"
-	"github.com/raykao/agent-forge/internal/telemetry"
+	"github.com/raykao/daedalus/internal/acp"
+	"github.com/raykao/daedalus/internal/proxy"
+	"github.com/raykao/daedalus/internal/queue"
+	"github.com/raykao/daedalus/internal/telemetry"
 )
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 
 	// Initialize telemetry provider
 	telProvider, err := telemetry.NewProvider(context.Background(), telemetry.Config{
-		ServiceName:    "agent-forge-proxy",
+		ServiceName:    "daedalus-proxy",
 		ServiceVersion: "0.1.0",
 		ExporterType:   *otelExporter,
 		OTLPEndpoint:   *otelEndpoint,
@@ -56,7 +56,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("agent-forge proxy starting",
+	logger.Info("daedalus proxy starting",
 		"acp_addr", *acpAddr,
 		"nats_url", *natsURL,
 		"stream", *stream,

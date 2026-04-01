@@ -34,13 +34,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 const (
 	// modelConfigHashAnnotation is the annotation set on AgentRuntimes to trigger
 	// reconciliation when the referenced ModelConfig's secret hash changes.
-	modelConfigHashAnnotation = "forge.agentforge.dev/model-config-hash"
+	modelConfigHashAnnotation = "daedalus.dev/model-config-hash"
 
 	// mcConditionTypeAvailable indicates the ModelConfig is valid and its
 	// referenced secret (if any) is accessible.
@@ -59,11 +59,11 @@ type ModelConfigReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=forge.agentforge.dev,resources=modelconfigs,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=forge.agentforge.dev,resources=modelconfigs/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=forge.agentforge.dev,resources=modelconfigs/finalizers,verbs=update
+//+kubebuilder:rbac:groups=daedalus.dev,resources=modelconfigs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=daedalus.dev,resources=modelconfigs/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=daedalus.dev,resources=modelconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-//+kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentruntimes,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=daedalus.dev,resources=agentruntimes,verbs=get;list;watch;update;patch
 
 // Reconcile watches ModelConfig CRs and their referenced Secrets. When a
 // secret's content changes (detected via SHA-256 hash), it propagates the
@@ -73,7 +73,7 @@ func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := logf.FromContext(ctx)
 
 	// 1. Fetch the ModelConfig CR.
-	var mc forgev1alpha1.ModelConfig
+	var mc daedalusv1alpha1.ModelConfig
 	if err := r.Get(ctx, req.NamespacedName, &mc); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found; likely deleted")
@@ -154,7 +154,7 @@ func (r *ModelConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // resolveSecretHash reads the referenced secret (if any) and returns a SHA-256
 // hash of its data. Returns empty string if no secret reference is configured.
-func (r *ModelConfigReconciler) resolveSecretHash(ctx context.Context, mc *forgev1alpha1.ModelConfig) (string, error) {
+func (r *ModelConfigReconciler) resolveSecretHash(ctx context.Context, mc *daedalusv1alpha1.ModelConfig) (string, error) {
 	ref := secretRefFromModelConfig(mc)
 	if ref == nil {
 		// No secret reference configured; nothing to hash.
@@ -176,7 +176,7 @@ func (r *ModelConfigReconciler) resolveSecretHash(ctx context.Context, mc *forge
 
 // secretRefFromModelConfig extracts the SecretKeyRef from the ModelConfig's
 // apiKey field, or nil if no secret reference is configured.
-func secretRefFromModelConfig(mc *forgev1alpha1.ModelConfig) *forgev1alpha1.KeySelector {
+func secretRefFromModelConfig(mc *daedalusv1alpha1.ModelConfig) *daedalusv1alpha1.KeySelector {
 	if mc.Spec.APIKey == nil {
 		return nil
 	}
@@ -217,13 +217,13 @@ func hashSecretData(data map[string][]byte) string {
 // reconciliation.
 func (r *ModelConfigReconciler) propagateHashToAgentRuntimes(
 	ctx context.Context,
-	mc *forgev1alpha1.ModelConfig,
+	mc *daedalusv1alpha1.ModelConfig,
 	hash string,
 ) error {
 	log := logf.FromContext(ctx)
 
 	// List all AgentRuntimes in the ModelConfig's namespace.
-	var runtimeList forgev1alpha1.AgentRuntimeList
+	var runtimeList daedalusv1alpha1.AgentRuntimeList
 	if err := r.List(ctx, &runtimeList); err != nil {
 		return fmt.Errorf("listing AgentRuntimes: %w", err)
 	}
@@ -257,7 +257,7 @@ func (r *ModelConfigReconciler) propagateHashToAgentRuntimes(
 
 // referencesModelConfig checks whether an AgentRuntime's modelConfigRef points
 // to the given ModelConfig.
-func referencesModelConfig(rt *forgev1alpha1.AgentRuntime, mc *forgev1alpha1.ModelConfig) bool {
+func referencesModelConfig(rt *daedalusv1alpha1.AgentRuntime, mc *daedalusv1alpha1.ModelConfig) bool {
 	ref := rt.Spec.ModelConfigRef
 	if ref == nil {
 		return false
@@ -278,7 +278,7 @@ func referencesModelConfig(rt *forgev1alpha1.AgentRuntime, mc *forgev1alpha1.Mod
 // the ModelConfigs that reference them.
 func (r *ModelConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&forgev1alpha1.ModelConfig{}).
+		For(&daedalusv1alpha1.ModelConfig{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToModelConfigs)).
 		Named("modelconfig").
 		Complete(r)
@@ -296,7 +296,7 @@ func (r *ModelConfigReconciler) mapSecretToModelConfigs(
 	}
 
 	// List all ModelConfigs in the secret's namespace.
-	var mcList forgev1alpha1.ModelConfigList
+	var mcList daedalusv1alpha1.ModelConfigList
 	if err := r.List(ctx, &mcList, client.InNamespace(secret.Namespace)); err != nil {
 		logf.FromContext(ctx).Error(err, "failed to list ModelConfigs for secret mapping",
 			"secret", secret.Name, "namespace", secret.Namespace)

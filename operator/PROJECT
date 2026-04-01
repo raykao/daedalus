@@ -3,55 +3,55 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.13.1
-domain: agentforge.dev
+domain: dev
 layout:
 - go.kubebuilder.io/v4
-projectName: agent-forge-operator
-repo: github.com/raykao/agent-forge/operator
+projectName: daedalus-operator
+repo: github.com/raykao/daedalus/operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: agentforge.dev
-  group: forge
+  domain: dev
+  group: daedalus
   kind: AgentRuntime
-  path: github.com/raykao/agent-forge/operator/api/v1alpha1
+  path: github.com/raykao/daedalus/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: agentforge.dev
-  group: forge
+  domain: dev
+  group: daedalus
   kind: ModelConfig
-  path: github.com/raykao/agent-forge/operator/api/v1alpha1
+  path: github.com/raykao/daedalus/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: agentforge.dev
-  group: forge
+  domain: dev
+  group: daedalus
   kind: MCPServer
-  path: github.com/raykao/agent-forge/operator/api/v1alpha1
+  path: github.com/raykao/daedalus/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: agentforge.dev
-  group: forge
+  domain: dev
+  group: daedalus
   kind: TaskPipeline
-  path: github.com/raykao/agent-forge/operator/api/v1alpha1
+  path: github.com/raykao/daedalus/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: agentforge.dev
-  group: forge
+  domain: dev
+  group: daedalus
   kind: AgentCard
-  path: github.com/raykao/agent-forge/operator/api/v1alpha1
+  path: github.com/raykao/daedalus/operator/api/v1alpha1
   version: v1alpha1
 version: "3"

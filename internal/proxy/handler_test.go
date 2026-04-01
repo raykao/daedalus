@@ -14,10 +14,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/acp"
-	contextmgmt "github.com/raykao/agent-forge/internal/contextmgmt"
-	"github.com/raykao/agent-forge/internal/queue"
+	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/acp"
+	contextmgmt "github.com/raykao/daedalus/internal/contextmgmt"
+	"github.com/raykao/daedalus/internal/queue"
 )
 
 // startMockACPServer starts a mock ACP server that handles the full initialize/new-session/prompt flow

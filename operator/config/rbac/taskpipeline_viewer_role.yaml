@@ -1,7 +1,7 @@
-# This rule is not used by the project agent-forge-operator itself.
+# This rule is not used by the project daedalus-operator itself.
 # It is provided to allow the cluster admin to help manage permissions for users.
 #
-# Grants read-only access to forge.agentforge.dev resources.
+# Grants read-only access to daedalus.dev resources.
 # This role is intended for users who need visibility into these resources
 # without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
 
@@ -9,12 +9,12 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    app.kubernetes.io/name: agent-forge-operator
+    app.kubernetes.io/name: daedalus-operator
     app.kubernetes.io/managed-by: kustomize
   name: taskpipeline-viewer-role
 rules:
 - apiGroups:
-  - forge.agentforge.dev
+  - daedalus.dev
   resources:
   - taskpipelines
   verbs:
@@ -22,7 +22,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - forge.agentforge.dev
+  - daedalus.dev
   resources:
   - taskpipelines/status
   verbs:

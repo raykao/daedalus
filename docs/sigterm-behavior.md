@@ -1,6 +1,6 @@
 # SIGTERM and Graceful Shutdown Behavior
 
-This document describes how the agent-forge proxy handles `SIGTERM` (and `SIGINT`) signals, the grace period phases, Kubernetes recommendations, and the behavior in each operational scenario.
+This document describes how the daedalus proxy handles `SIGTERM` (and `SIGINT`) signals, the grace period phases, Kubernetes recommendations, and the behavior in each operational scenario.
 
 ## Signal Chain
 
@@ -9,7 +9,7 @@ Kubernetes / operator
         |
         | SIGTERM
         v
-  agent-forge proxy
+  daedalus proxy
         |
         | ACP session/cancel (JSON-RPC 2.0 over TCP)
         v
@@ -61,7 +61,7 @@ Set `terminationGracePeriodSeconds: 35` in the Pod spec:
 spec:
   terminationGracePeriodSeconds: 35   # 30 s app grace + 5 s K8s buffer
   containers:
-  - name: agent-forge-proxy
+  - name: daedalus-proxy
     args:
     - --grace-period=30s
 ```

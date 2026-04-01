@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: agentcards.forge.agentforge.dev
+  name: agentcards.daedalus.dev
 spec:
-  group: forge.agentforge.dev
+  group: daedalus.dev
   names:
     kind: AgentCard
     listKind: AgentCardList

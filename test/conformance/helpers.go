@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -173,7 +173,7 @@ func loadSchema(name string) (*jsonschema.Schema, error) {
 	if err != nil {
 		return nil, err
 	}
-	id := "https://agent-forge/schemas/" + name
+	id := "https://daedalus/schemas/" + name
 	return c.Compile(id)
 }
 

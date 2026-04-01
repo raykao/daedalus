@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: mcpservers.forge.agentforge.dev
+  name: modelconfigs.daedalus.dev
 spec:
-  group: forge.agentforge.dev
+  group: daedalus.dev
   names:
-    kind: MCPServer
-    listKind: MCPServerList
-    plural: mcpservers
-    singular: mcpserver
+    kind: ModelConfig
+    listKind: ModelConfigList
+    plural: modelconfigs
+    singular: modelconfig
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: MCPServer is the Schema for the mcpservers API
+        description: ModelConfig is the Schema for the modelconfigs API
         properties:
           apiVersion:
             description: |-
@@ -37,11 +37,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of MCPServer
+            description: spec defines the desired state of ModelConfig
             properties:
               allowedNamespaces:
                 description: allowedNamespaces defines which namespaces may reference
-                  this MCPServer.
+                  this ModelConfig.
                 properties:
                   from:
                     default: Same
@@ -101,20 +101,52 @@ spec:
                 required:
                 - from
                 type: object
-              command:
-                description: command is the command to run for Stdio protocol MCP
-                  servers.
-                items:
-                  type: string
-                type: array
-              description:
-                description: description is a human-readable description of this MCP
-                  server.
+              apiEndpoint:
+                description: apiEndpoint is the provider API base URL. Omit for default
+                  provider endpoints.
                 type: string
+              apiKey:
+                description: apiKey provides the API key via inline value or secret
+                  reference.
+                properties:
+                  value:
+                    description: value is an inline string value. Mutually exclusive
+                      with valueFrom.
+                    type: string
+                  valueFrom:
+                    description: valueFrom specifies a source for the value. Mutually
+                      exclusive with value.
+                    properties:
+                      configMapKeyRef:
+                        description: configMapKeyRef selects a key from a ConfigMap.
+                        properties:
+                          key:
+                            description: key is the key within the ConfigMap or Secret.
+                            type: string
+                          name:
+                            description: name is the name of the ConfigMap or Secret.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      secretKeyRef:
+                        description: secretKeyRef selects a key from a Secret.
+                        properties:
+                          key:
+                            description: key is the key within the ConfigMap or Secret.
+                            type: string
+                          name:
+                            description: name is the name of the ConfigMap or Secret.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                type: object
               headers:
-                description: |-
-                  headers are HTTP headers sent with MCP requests (e.g., authentication).
-                  Uses ValueRef for flexible value resolution (inline, ConfigMap, Secret).
+                description: headers are additional HTTP headers sent with API requests.
                 items:
                   description: |-
                     ValueRef provides a flexible way to specify configuration values.
@@ -165,40 +197,29 @@ spec:
                   - name
                   type: object
                 type: array
-              protocol:
-                default: StreamableHTTP
-                description: protocol specifies the MCP transport (SSE, StreamableHTTP,
-                  or Stdio).
-                enum:
-                - SSE
-                - StreamableHTTP
-                - Stdio
+              model:
+                description: model is the model identifier (e.g., "gpt-4o", "claude-sonnet-4-20250514",
+                  "copilot").
                 type: string
-              tools:
-                description: |-
-                  tools lists the tool names this MCP server provides.
-                  Used for routing and discovery.
-                items:
+              parameters:
+                additionalProperties:
                   type: string
-                type: array
-              url:
-                description: url is the MCP server endpoint URL (for SSE or StreamableHTTP
-                  protocols).
+                description: parameters are model-specific parameters (temperature,
+                  max_tokens, etc.).
+                type: object
+              provider:
+                description: provider identifies the LLM provider (e.g., "github-copilot",
+                  "openai", "anthropic", "bedrock").
                 type: string
             required:
-            - protocol
+            - model
+            - provider
             type: object
           status:
-            description: status defines the observed state of MCPServer
+            description: status defines the observed state of ModelConfig
             properties:
-              availableTools:
-                description: availableTools lists the tools discovered from the MCP
-                  server.
-                items:
-                  type: string
-                type: array
               conditions:
-                description: conditions represent the current state of the MCPServer
+                description: conditions represent the current state of the ModelConfig
                   resource.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -263,6 +284,12 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              secretHash:
+                description: |-
+                  secretHash is a SHA-256 hash of the referenced secret data.
+                  The controller reconciles downstream AgentRuntimes when this hash changes,
+                  enabling automatic credential rotation propagation.
+                type: string
             type: object
         required:
         - spec

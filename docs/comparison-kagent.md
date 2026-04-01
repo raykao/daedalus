@@ -1,4 +1,4 @@
-# Comparison: Agent Forge vs kagent
+# Comparison: Daedalus vs kagent
 
 ## What is kagent?
 
@@ -20,7 +20,7 @@ Source: [github.com/kagent-dev/kagent](https://github.com/kagent-dev/kagent)
 
 ## Side-by-Side Comparison
 
-| Dimension | **kagent** | **Agent Forge** |
+| Dimension | **kagent** | **Daedalus** |
 |-----------|-----------|----------------|
 | **Purpose** | DevOps/platform engineering agent framework | Software development factory (autonomous coding) |
 | **Agent engine** | Google ADK (Python/Go) | copilot-bridge + GitHub Copilot CLI |
@@ -62,7 +62,7 @@ Agent
         └── deployment → custom container image
 ```
 
-**Takeaway for Agent Forge:** When we build our Phase 3 operator, adopt kagent's patterns:
+**Takeaway for Daedalus:** When we build our Phase 3 operator, adopt kagent's patterns:
 - `TypedReference` for cross-resource references (kind, apiGroup, name, namespace)
 - `AllowedNamespaces` for cross-namespace authorization (Gateway API pattern)
 - `ValueRef` / `ValueSource` for flexible value resolution (inline, ConfigMap, Secret)
@@ -123,7 +123,7 @@ kagent runs Google ADK agents - Python or Go programs that call LLM APIs via pro
 
 ### 2. Execution Model: Interactive vs Autonomous
 
-kagent agents are interactive - a user invokes them via CLI or UI and gets responses. Agent Forge workers are autonomous - the orchestrator dispatches a task, the worker executes for 5-15 minutes, produces artifacts (commits, PRs), and exits.
+kagent agents are interactive - a user invokes them via CLI or UI and gets responses. Daedalus workers are autonomous - the orchestrator dispatches a task, the worker executes for 5-15 minutes, produces artifacts (commits, PRs), and exits.
 
 This difference drives the queue requirement: interactive agents don't need buffering (human is waiting). Autonomous factory workers do (queue absorbs bursts, retries failures, enables scale-to-zero).
 
@@ -131,7 +131,7 @@ This difference drives the queue requirement: interactive agents don't need buff
 
 kagent agents run as long-lived Deployments with replicas. Our workers run as KEDA ScaledJobs that scale to zero when idle.
 
-| | kagent | Agent Forge |
+| | kagent | Daedalus |
 |---|--------|-------------|
 | Pod lifecycle | Long-running | Ephemeral (per-task) |
 | Idle cost | Paying for idle pods | Zero (scale-to-zero) |
@@ -142,7 +142,7 @@ kagent agents run as long-lived Deployments with replicas. Our workers run as KE
 
 ### 4. Queue Decoupling
 
-kagent uses direct A2A HTTP between agents. Agent Forge puts NATS JetStream between the orchestrator and workers, with a proxy sidecar bridging queue to A2A HTTP.
+kagent uses direct A2A HTTP between agents. Daedalus puts NATS JetStream between the orchestrator and workers, with a proxy sidecar bridging queue to A2A HTTP.
 
 **Why the queue matters:**
 - **Scale-to-zero:** Can't POST to a pod that doesn't exist. Queue buffers until KEDA wakes a worker.
@@ -170,7 +170,7 @@ kagent's controller and CRD patterns are excellent infrastructure. If kagent add
 **What we should do instead:**
 - Study kagent's CRD schemas when building our Phase 3 operator
 - Adopt their design patterns (TypedReference, AllowedNamespaces, ValueRef, secret hashing)
-- Ensure A2A compatibility so a kagent agent could call an Agent Forge worker (or vice versa)
+- Ensure A2A compatibility so a kagent agent could call an Daedalus worker (or vice versa)
 - Consider contributing a "queue transport" or "ScaledJob execution mode" upstream
 
 ---
@@ -180,4 +180,4 @@ kagent's controller and CRD patterns are excellent infrastructure. If kagent add
 - [kagent GitHub](https://github.com/kagent-dev/kagent)
 - [kagent docs](https://kagent.dev/)
 - [kagent CRD types (v1alpha2)](https://github.com/kagent-dev/kagent/tree/main/go/api/v1alpha2)
-- [Agent Forge research](../research/hybrid-comms-architecture.md)
+- [Daedalus research](../research/hybrid-comms-architecture.md)

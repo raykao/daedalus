@@ -1,4 +1,4 @@
-module github.com/raykao/agent-forge
+module github.com/raykao/daedalus
 
 go 1.25.0
 

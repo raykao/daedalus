@@ -1,6 +1,6 @@
 # Integration Testing
 
-This document explains how to run the Docker Compose integration test for agent-forge. The test validates the complete end-to-end loop: publish an A2A task to NATS, the proxy dequeues it, drives the mock ACP agent, and the result flows back through NATS.
+This document explains how to run the Docker Compose integration test for daedalus. The test validates the complete end-to-end loop: publish an A2A task to NATS, the proxy dequeues it, drives the mock ACP agent, and the result flows back through NATS.
 
 ## Prerequisites
 

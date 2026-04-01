@@ -1,10 +1,10 @@
 ## Append samples of your project ##
 resources:
-- forge_v1alpha1_agentruntime.yaml
-- forge_v1alpha1_agentruntime_byo.yaml
-- forge_v1alpha1_modelconfig.yaml
-- forge_v1alpha1_modelconfig_openai.yaml
-- forge_v1alpha1_mcpserver.yaml
-- forge_v1alpha1_taskpipeline.yaml
-- forge_v1alpha1_agentcard.yaml
+- daedalus_v1alpha1_agentruntime.yaml
+- daedalus_v1alpha1_agentruntime_byo.yaml
+- daedalus_v1alpha1_modelconfig.yaml
+- daedalus_v1alpha1_modelconfig_openai.yaml
+- daedalus_v1alpha1_mcpserver.yaml
+- daedalus_v1alpha1_taskpipeline.yaml
+- daedalus_v1alpha1_agentcard.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

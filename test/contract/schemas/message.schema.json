@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-forge/schemas/message.schema.json",
+  "$id": "https://daedalus/schemas/message.schema.json",
   "type": "object",
   "required": [
     "messageId",

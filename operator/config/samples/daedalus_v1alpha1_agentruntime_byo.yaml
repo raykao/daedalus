@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: AgentRuntime
 metadata:
   name: doc-analyzer
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   type: BYO
   conformanceLevel: Level1

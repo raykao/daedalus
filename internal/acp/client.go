@@ -77,7 +77,7 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	params := InitializeParams{
 		ProtocolVersion: protocolVersion,
 		Capabilities:    ClientCapabilities{Streaming: true},
-		ClientInfo:      ClientInfo{Name: "agent-forge-proxy", Version: "0.1.0"},
+		ClientInfo:      ClientInfo{Name: "daedalus-proxy", Version: "0.1.0"},
 	}
 	resp, err := c.call(ctx, "initialize", params)
 	if err != nil {

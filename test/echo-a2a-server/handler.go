@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 // echoAgentCard returns the AgentCard for the echo A2A server.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-integration.sh - Build, start, test, and tear down the Docker Compose
-# integration stack for agent-forge.
+# integration stack for daedalus.
 #
 # Usage:
 #   ./test/scripts/run-integration.sh [--no-build] [--no-teardown]
@@ -42,7 +42,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== agent-forge integration test ==="
+echo "=== daedalus integration test ==="
 echo "Repo root:    ${REPO_ROOT}"
 echo "Compose file: ${COMPOSE_FILE}"
 echo ""

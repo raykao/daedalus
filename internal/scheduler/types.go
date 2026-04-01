@@ -1,6 +1,6 @@
 package scheduler
 
-import "github.com/raykao/agent-forge/internal/dispatch"
+import "github.com/raykao/daedalus/internal/dispatch"
 
 // ScheduledTask extends TaskSpec with dependency information.
 type ScheduledTask struct {
