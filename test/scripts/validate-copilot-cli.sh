@@ -137,7 +137,7 @@ TASK_JSON=$(cat <<EOF
     "taskId": "${TASK_ID}",
     "role": "user",
     "parts": [
-      {"text": "Create a file called hello.txt with the contents 'Hello from Agent Forge validation'. Do not create any other files."}
+      {"text": "Create a file called hello.txt with the contents 'Hello from Daedalus validation'. Do not create any other files."}
     ]
   }
 }

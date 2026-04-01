@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: ModelConfig
 metadata:
   name: openai-gpt4o
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   provider: openai
   model: gpt-4o

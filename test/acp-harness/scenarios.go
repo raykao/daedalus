@@ -37,7 +37,7 @@ func initialize(ctx context.Context, c *Client) (json.RawMessage, error) {
 result, _, err := c.RPC(ctx, "initialize", map[string]any{
 "protocolVersion": "2025-01-01",
 "capabilities":    map[string]any{"streaming": true},
-"clientInfo":      map[string]any{"name": "agent-forge-proxy", "version": "0.1.0"},
+"clientInfo":      map[string]any{"name": "daedalus-proxy", "version": "0.1.0"},
 })
 return result, err
 }

@@ -1,4 +1,4 @@
-# Agent Forge Operator
+# Daedalus Operator
 
 A Kubernetes operator that manages pluggable AI agent runtimes via Custom Resource Definitions (CRDs). The operator provisions and orchestrates agent workers, LLM configurations, MCP tool servers, and multi-stage task pipelines -- enabling autonomous, queue-driven agent execution on Kubernetes.
 
@@ -6,11 +6,11 @@ A Kubernetes operator that manages pluggable AI agent runtimes via Custom Resour
 
 | CRD | API Version | Purpose |
 |-----|-------------|---------|
-| **AgentRuntime** | `forge.agentforge.dev/v1alpha1` | Defines a worker runtime: container image, NATS queue binding, KEDA scaling, and agent capabilities. Supports `Declarative` (platform-managed) and `BYO` (user-provided) runtime types. |
-| **ModelConfig** | `forge.agentforge.dev/v1alpha1` | LLM provider configuration with secret-backed API keys. Supports cross-namespace sharing via Gateway API `AllowedNamespaces` pattern. |
-| **MCPServer** | `forge.agentforge.dev/v1alpha1` | Shared MCP (Model Context Protocol) tool server that agent runtimes reference. Supports SSE, StreamableHTTP, and Stdio transports. |
-| **TaskPipeline** | `forge.agentforge.dev/v1alpha1` | Multi-stage workflow routing with fan-out/fan-in, dependency ordering, and result aggregation across agent runtimes. |
-| **AgentCard** | `forge.agentforge.dev/v1alpha1` | Standalone capability discovery resource (A2A protocol). Can be inlined in AgentRuntime or shared across runtimes. |
+| **AgentRuntime** | `daedalus.dev/v1alpha1` | Defines a worker runtime: container image, NATS queue binding, KEDA scaling, and agent capabilities. Supports `Declarative` (platform-managed) and `BYO` (user-provided) runtime types. |
+| **ModelConfig** | `daedalus.dev/v1alpha1` | LLM provider configuration with secret-backed API keys. Supports cross-namespace sharing via Gateway API `AllowedNamespaces` pattern. |
+| **MCPServer** | `daedalus.dev/v1alpha1` | Shared MCP (Model Context Protocol) tool server that agent runtimes reference. Supports SSE, StreamableHTTP, and Stdio transports. |
+| **TaskPipeline** | `daedalus.dev/v1alpha1` | Multi-stage workflow routing with fan-out/fan-in, dependency ordering, and result aggregation across agent runtimes. |
+| **AgentCard** | `daedalus.dev/v1alpha1` | Standalone capability discovery resource (A2A protocol). Can be inlined in AgentRuntime or shared across runtimes. |
 
 ## Architecture
 
@@ -64,15 +64,15 @@ make install
 ### 2. Deploy the operator
 
 ```sh
-make docker-build docker-push IMG=<your-registry>/agent-forge-operator:latest
-make deploy IMG=<your-registry>/agent-forge-operator:latest
+make docker-build docker-push IMG=<your-registry>/daedalus-operator:latest
+make deploy IMG=<your-registry>/daedalus-operator:latest
 ```
 
 ### 3. Create a namespace and secrets
 
 ```sh
-kubectl create namespace agent-forge
-kubectl -n agent-forge create secret generic github-credentials \
+kubectl create namespace daedalus
+kubectl -n daedalus create secret generic github-credentials \
   --from-literal=token=$GITHUB_TOKEN
 ```
 
@@ -95,7 +95,7 @@ kubectl apply -k config/samples/
 ### 5. Verify
 
 ```sh
-kubectl -n agent-forge get agentruntime,modelconfig,mcpserver
+kubectl -n daedalus get agentruntime,modelconfig,mcpserver
 ```
 
 ## Sample Resources

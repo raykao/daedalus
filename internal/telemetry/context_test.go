@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/telemetry"
+	"github.com/raykao/daedalus/internal/telemetry"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )

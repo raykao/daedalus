@@ -1,4 +1,4 @@
-Agent Forge has been deployed!
+Daedalus has been deployed!
 
 Workers deployed:
 {{- range .Values.workers }}
@@ -23,7 +23,7 @@ To check active Jobs (running workers):
 To view proxy logs for an active job (e.g., copilot):
   kubectl logs -l app.kubernetes.io/component=copilot -c proxy --follow
 
-NATS monitoring endpoint: {{ include "agent-forge.natsMonitoringURL" . }}
+NATS monitoring endpoint: {{ include "daedalus.natsMonitoringURL" . }}
   (used by KEDA to observe JetStream consumer lag)
 
 {{- else }}
@@ -46,15 +46,15 @@ To view proxy logs for a worker (e.g., copilot):
   kubectl logs -l app.kubernetes.io/component=copilot -c proxy --follow
 
 To scale a worker:
-  kubectl scale deployment/{{ include "agent-forge.fullname" . }}-copilot --replicas=3
+  kubectl scale deployment/{{ include "daedalus.fullname" . }}-copilot --replicas=3
 
 {{- end }}
 
 {{- if .Values.nats.enabled }}
 
 NATS JetStream is running as a subchart.
-Internal URL: {{ include "agent-forge.natsURL" . }}
-Monitoring: {{ include "agent-forge.natsMonitoringURL" . }}
+Internal URL: {{ include "daedalus.natsURL" . }}
+Monitoring: {{ include "daedalus.natsMonitoringURL" . }}
 {{- else }}
 
 NATS is managed externally.

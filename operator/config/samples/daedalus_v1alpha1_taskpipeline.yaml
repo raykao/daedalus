@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: TaskPipeline
 metadata:
   name: code-review-pipeline
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   description: "Multi-stage code review: analyze, test, review"
   stages:
@@ -11,7 +11,7 @@ spec:
     - name: static-analysis
       agentRuntimeRef:
         kind: AgentRuntime
-        apiGroup: forge.agentforge.dev
+        apiGroup: daedalus.dev
         name: copilot-worker
       skillID: code-review
       prompt: "Analyze the following code for bugs and anti-patterns"
@@ -22,7 +22,7 @@ spec:
     - name: generate-tests
       agentRuntimeRef:
         kind: AgentRuntime
-        apiGroup: forge.agentforge.dev
+        apiGroup: daedalus.dev
         name: copilot-worker
       skillID: test-writing
       prompt: "Write tests for the code based on the analysis: {{.PreviousStageOutput}}"
@@ -32,7 +32,7 @@ spec:
     - name: final-review
       agentRuntimeRef:
         kind: AgentRuntime
-        apiGroup: forge.agentforge.dev
+        apiGroup: daedalus.dev
         name: doc-analyzer
       skillID: doc-analysis
       prompt: "Review the complete analysis and tests: {{.PreviousStageOutput}}"

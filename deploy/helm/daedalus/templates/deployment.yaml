@@ -6,19 +6,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agent-forge.workerFullname" (dict "root" $root "worker" $worker) }}
+  name: {{ include "daedalus.workerFullname" (dict "root" $root "worker" $worker) }}
   labels:
-    {{- include "agent-forge.labels" $root | nindent 4 }}
+    {{- include "daedalus.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $worker.name }}
 spec:
   replicas: {{ $worker.replicas | default 1 }}
   selector:
     matchLabels:
-      {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 6 }}
+      {{- include "daedalus.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 8 }}
+        {{- include "daedalus.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 8 }}
     spec:
       terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds | default 35 }}
       {{- with $root.Values.imagePullSecrets }}
@@ -30,7 +30,7 @@ spec:
           emptyDir: {}
         - name: agent-registry
           configMap:
-            name: {{ include "agent-forge.fullname" $root }}-registry
+            name: {{ include "daedalus.fullname" $root }}-registry
 
       containers:
         # Proxy sidecar: consumes from NATS JetStream and drives the agent via ACP
@@ -45,7 +45,7 @@ spec:
             - name: ACP_ADDR
               value: "localhost:{{ $worker.acpPort | default 3000 }}"
             - name: NATS_URL
-              value: {{ include "agent-forge.natsURL" $root | quote }}
+              value: {{ include "daedalus.natsURL" $root | quote }}
             - name: NATS_STREAM
               value: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
             - name: NATS_SUBJECT
@@ -58,7 +58,7 @@ spec:
             - name: workspace
               mountPath: /workspace
             - name: agent-registry
-              mountPath: /etc/agent-forge
+              mountPath: /etc/daedalus
               readOnly: true
           {{- with $worker.proxy.resources }}
           resources:

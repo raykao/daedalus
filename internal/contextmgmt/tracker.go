@@ -1,5 +1,5 @@
 // Package contextmgmt provides context window usage tracking and R18
-// resurrection strategy selection for the agent-forge proxy sidecar.
+// resurrection strategy selection for the daedalus proxy sidecar.
 package contextmgmt
 
 import (

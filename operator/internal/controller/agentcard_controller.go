@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 // AgentCardReconciler reconciles a AgentCard object
@@ -33,9 +33,9 @@ type AgentCardReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentcards,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentcards/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentcards/finalizers,verbs=update
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentcards,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentcards/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentcards/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -57,7 +57,7 @@ func (r *AgentCardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentCardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&forgev1alpha1.AgentCard{}).
+		For(&daedalusv1alpha1.AgentCard{}).
 		Named("agentcard").
 		Complete(r)
 }

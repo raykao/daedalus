@@ -36,12 +36,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 const (
 	// proxyImage is the sidecar proxy image injected into ScaledJob pods.
-	proxyImage = "ghcr.io/raykao/agent-forge-proxy:latest"
+	proxyImage = "ghcr.io/raykao/daedalus-proxy:latest"
 
 	// configMapSuffix is appended to the AgentRuntime name for the ConfigMap.
 	configMapSuffix = "-agent-registry"
@@ -88,9 +88,9 @@ type AgentRuntimeReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentruntimes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentruntimes/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=agentruntimes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentruntimes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentruntimes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=daedalus.dev,resources=agentruntimes/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
@@ -103,7 +103,7 @@ func (r *AgentRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log := logf.FromContext(ctx)
 
 	// Fetch the AgentRuntime CR.
-	var rt forgev1alpha1.AgentRuntime
+	var rt daedalusv1alpha1.AgentRuntime
 	if err := r.Get(ctx, req.NamespacedName, &rt); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("AgentRuntime not found, likely deleted")
@@ -199,7 +199,7 @@ func (r *AgentRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 // reconcileConfigMap creates or updates the agent registry ConfigMap.
-func (r *AgentRuntimeReconciler) reconcileConfigMap(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) reconcileConfigMap(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	cmName := rt.Name + configMapSuffix
 
 	// Build agent registry entry JSON.
@@ -245,7 +245,7 @@ func (r *AgentRuntimeReconciler) reconcileConfigMap(ctx context.Context, rt *for
 }
 
 // reconcileService creates or updates the ClusterIP Service for the A2A port.
-func (r *AgentRuntimeReconciler) reconcileService(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) reconcileService(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	svcName := rt.Name + serviceSuffix
 	port := rt.Spec.Container.Port
 	if port == 0 {
@@ -263,7 +263,7 @@ func (r *AgentRuntimeReconciler) reconcileService(ctx context.Context, rt *forge
 			Selector: map[string]string{
 				"app.kubernetes.io/name":       "agentruntime",
 				"app.kubernetes.io/instance":   rt.Name,
-				"app.kubernetes.io/managed-by": "agent-forge-operator",
+				"app.kubernetes.io/managed-by": "daedalus-operator",
 			},
 			Ports: []corev1.ServicePort{
 				{
@@ -303,7 +303,7 @@ func (r *AgentRuntimeReconciler) reconcileService(ctx context.Context, rt *forge
 
 // reconcileWorkload creates or updates the workload (ScaledJob or Deployment)
 // based on the scaling mode.
-func (r *AgentRuntimeReconciler) reconcileWorkload(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) reconcileWorkload(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	mode := "ScaledJob" // default
 	if rt.Spec.Scaling != nil && rt.Spec.Scaling.Mode != "" {
 		mode = rt.Spec.Scaling.Mode
@@ -326,7 +326,7 @@ func (r *AgentRuntimeReconciler) reconcileWorkload(ctx context.Context, rt *forg
 }
 
 // deleteDeploymentIfExists removes an existing Deployment for this runtime if present.
-func (r *AgentRuntimeReconciler) deleteDeploymentIfExists(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) deleteDeploymentIfExists(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	dep := &appsv1.Deployment{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: rt.Namespace, Name: rt.Name}, dep)
 	if apierrors.IsNotFound(err) {
@@ -339,7 +339,7 @@ func (r *AgentRuntimeReconciler) deleteDeploymentIfExists(ctx context.Context, r
 }
 
 // deleteScaledJobIfExists removes an existing ScaledJob for this runtime if present.
-func (r *AgentRuntimeReconciler) deleteScaledJobIfExists(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) deleteScaledJobIfExists(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	sj := &unstructured.Unstructured{}
 	sj.SetGroupVersionKind(schema.GroupVersionKind{
 		Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledJob",
@@ -355,7 +355,7 @@ func (r *AgentRuntimeReconciler) deleteScaledJobIfExists(ctx context.Context, rt
 }
 
 // reconcileScaledJob creates or updates a KEDA ScaledJob using unstructured.
-func (r *AgentRuntimeReconciler) reconcileScaledJob(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) reconcileScaledJob(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	sjName := rt.Name
 
 	// Build the ScaledJob manifest.
@@ -389,7 +389,7 @@ func (r *AgentRuntimeReconciler) reconcileScaledJob(ctx context.Context, rt *for
 }
 
 // reconcileDeployment creates or updates a Deployment for static scaling mode.
-func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *forgev1alpha1.AgentRuntime) error {
+func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *daedalusv1alpha1.AgentRuntime) error {
 	deployName := rt.Name
 	replicas := int32(1)
 	if rt.Spec.Scaling != nil && rt.Spec.Scaling.Replicas != nil {
@@ -404,7 +404,7 @@ func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *fo
 	podLabels := map[string]string{
 		"app.kubernetes.io/name":       "agentruntime",
 		"app.kubernetes.io/instance":   rt.Name,
-		"app.kubernetes.io/managed-by": "agent-forge-operator",
+		"app.kubernetes.io/managed-by": "daedalus-operator",
 	}
 
 	containers, err := r.buildContainers(rt, port)
@@ -461,7 +461,7 @@ func (r *AgentRuntimeReconciler) reconcileDeployment(ctx context.Context, rt *fo
 }
 
 // buildScaledJob constructs an unstructured KEDA ScaledJob.
-func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, name string) *unstructured.Unstructured {
+func (r *AgentRuntimeReconciler) buildScaledJob(rt *daedalusv1alpha1.AgentRuntime, name string) *unstructured.Unstructured {
 	port := rt.Spec.Container.Port
 	if port == 0 {
 		port = 8080
@@ -586,7 +586,7 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 							"labels": map[string]interface{}{
 								"app.kubernetes.io/name":       "agentruntime",
 								"app.kubernetes.io/instance":   rt.Name,
-								"app.kubernetes.io/managed-by": "agent-forge-operator",
+								"app.kubernetes.io/managed-by": "daedalus-operator",
 							},
 						},
 						"spec": podSpec,
@@ -613,7 +613,7 @@ func (r *AgentRuntimeReconciler) buildScaledJob(rt *forgev1alpha1.AgentRuntime, 
 }
 
 // buildContainers builds the container list for Deployment pods.
-func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime, port int32) ([]corev1.Container, error) {
+func (r *AgentRuntimeReconciler) buildContainers(rt *daedalusv1alpha1.AgentRuntime, port int32) ([]corev1.Container, error) {
 	envVars := buildEnvVarsTyped(rt)
 
 	agentContainer := corev1.Container{
@@ -660,7 +660,7 @@ func (r *AgentRuntimeReconciler) buildContainers(rt *forgev1alpha1.AgentRuntime,
 }
 
 // buildRegistryJSON creates the agent registry entry JSON.
-func (r *AgentRuntimeReconciler) buildRegistryJSON(rt *forgev1alpha1.AgentRuntime) (string, error) {
+func (r *AgentRuntimeReconciler) buildRegistryJSON(rt *daedalusv1alpha1.AgentRuntime) (string, error) {
 	port := rt.Spec.Container.Port
 	if port == 0 {
 		port = 8080
@@ -700,7 +700,7 @@ func (r *AgentRuntimeReconciler) buildRegistryJSON(rt *forgev1alpha1.AgentRuntim
 
 // contextManagementEnvVars returns context management env vars as []interface{}
 // for the unstructured ScaledJob path. Returns nil if context management is not configured.
-func contextManagementEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
+func contextManagementEnvVars(rt *daedalusv1alpha1.AgentRuntime) []interface{} {
 	if rt.Spec.ContextManagement == nil {
 		return nil
 	}
@@ -744,7 +744,7 @@ func contextManagementEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 
 // contextManagementEnvVarsTyped returns context management env vars as []corev1.EnvVar
 // for the typed Deployment path. Returns nil if context management is not configured.
-func contextManagementEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
+func contextManagementEnvVarsTyped(rt *daedalusv1alpha1.AgentRuntime) []corev1.EnvVar {
 	if rt.Spec.ContextManagement == nil {
 		return nil
 	}
@@ -771,25 +771,25 @@ func contextManagementEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvV
 // --- Helper functions ---
 
 // childLabels returns standard labels for child resources.
-func childLabels(rt *forgev1alpha1.AgentRuntime) map[string]string {
+func childLabels(rt *daedalusv1alpha1.AgentRuntime) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/name":       "agentruntime",
 		"app.kubernetes.io/instance":   rt.Name,
-		"app.kubernetes.io/managed-by": "agent-forge-operator",
+		"app.kubernetes.io/managed-by": "daedalus-operator",
 	}
 }
 
 // childLabelsMap returns labels as map[string]interface{} for unstructured objects.
-func childLabelsMap(rt *forgev1alpha1.AgentRuntime) map[string]interface{} {
+func childLabelsMap(rt *daedalusv1alpha1.AgentRuntime) map[string]interface{} {
 	return map[string]interface{}{
 		"app.kubernetes.io/name":       "agentruntime",
 		"app.kubernetes.io/instance":   rt.Name,
-		"app.kubernetes.io/managed-by": "agent-forge-operator",
+		"app.kubernetes.io/managed-by": "daedalus-operator",
 	}
 }
 
 // queueStream returns the NATS stream name, defaulting to "AGENT_TASKS".
-func queueStream(rt *forgev1alpha1.AgentRuntime) string {
+func queueStream(rt *daedalusv1alpha1.AgentRuntime) string {
 	if rt.Spec.Queue.Stream != "" {
 		return rt.Spec.Queue.Stream
 	}
@@ -798,7 +798,7 @@ func queueStream(rt *forgev1alpha1.AgentRuntime) string {
 
 // natsMonitoringEndpoint returns the NATS HTTP monitoring endpoint from KEDASpec,
 // falling back to the default "nats.nats.svc.cluster.local:8222".
-func natsMonitoringEndpoint(rt *forgev1alpha1.AgentRuntime) string {
+func natsMonitoringEndpoint(rt *daedalusv1alpha1.AgentRuntime) string {
 	if rt.Spec.Scaling != nil && rt.Spec.Scaling.KEDA != nil && rt.Spec.Scaling.KEDA.NATSMonitoringEndpoint != "" {
 		return rt.Spec.Scaling.KEDA.NATSMonitoringEndpoint
 	}
@@ -806,7 +806,7 @@ func natsMonitoringEndpoint(rt *forgev1alpha1.AgentRuntime) string {
 }
 
 // buildEnvVars builds env vars as []interface{} for unstructured (ScaledJob).
-func buildEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
+func buildEnvVars(rt *daedalusv1alpha1.AgentRuntime) []interface{} {
 	var envs []interface{}
 	for _, v := range rt.Spec.Env {
 		if v.ValueFrom != nil {
@@ -842,7 +842,7 @@ func buildEnvVars(rt *forgev1alpha1.AgentRuntime) []interface{} {
 }
 
 // buildEnvVarsTyped builds env vars as []corev1.EnvVar for typed Deployment.
-func buildEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
+func buildEnvVarsTyped(rt *daedalusv1alpha1.AgentRuntime) []corev1.EnvVar {
 	var envs []corev1.EnvVar
 	for _, v := range rt.Spec.Env {
 		if v.ValueFrom != nil {
@@ -879,7 +879,7 @@ func buildEnvVarsTyped(rt *forgev1alpha1.AgentRuntime) []corev1.EnvVar {
 }
 
 // buildResourceRequirements returns resource requirements as map for unstructured.
-func buildResourceRequirements(rt *forgev1alpha1.AgentRuntime) map[string]interface{} {
+func buildResourceRequirements(rt *daedalusv1alpha1.AgentRuntime) map[string]interface{} {
 	if rt.Spec.Container.Resources == nil {
 		return nil
 	}
@@ -915,7 +915,7 @@ func buildResourceRequirements(rt *forgev1alpha1.AgentRuntime) map[string]interf
 }
 
 // buildResourceRequirementsTyped returns typed resource requirements for Deployment.
-func buildResourceRequirementsTyped(rt *forgev1alpha1.AgentRuntime) (corev1.ResourceRequirements, error) {
+func buildResourceRequirementsTyped(rt *daedalusv1alpha1.AgentRuntime) (corev1.ResourceRequirements, error) {
 	rr := corev1.ResourceRequirements{}
 	if rt.Spec.Container.Resources == nil {
 		return rr, nil
@@ -966,7 +966,7 @@ func parseQuantity(s string) (resource.Quantity, error) {
 }
 
 // imagePullSecrets returns typed ImagePullSecrets for Deployment pods.
-func imagePullSecrets(rt *forgev1alpha1.AgentRuntime) []corev1.LocalObjectReference {
+func imagePullSecrets(rt *daedalusv1alpha1.AgentRuntime) []corev1.LocalObjectReference {
 	var refs []corev1.LocalObjectReference
 	for _, name := range rt.Spec.Container.ImagePullSecrets {
 		refs = append(refs, corev1.LocalObjectReference{Name: name})
@@ -975,7 +975,7 @@ func imagePullSecrets(rt *forgev1alpha1.AgentRuntime) []corev1.LocalObjectRefere
 }
 
 // imagePullSecretsUnstructured returns image pull secrets for unstructured pods.
-func imagePullSecretsUnstructured(rt *forgev1alpha1.AgentRuntime) []interface{} {
+func imagePullSecretsUnstructured(rt *daedalusv1alpha1.AgentRuntime) []interface{} {
 	var refs []interface{}
 	for _, name := range rt.Spec.Container.ImagePullSecrets {
 		refs = append(refs, map[string]interface{}{
@@ -988,7 +988,7 @@ func imagePullSecretsUnstructured(rt *forgev1alpha1.AgentRuntime) []interface{} 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&forgev1alpha1.AgentRuntime{}).
+		For(&daedalusv1alpha1.AgentRuntime{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
 		Owns(&appsv1.Deployment{})

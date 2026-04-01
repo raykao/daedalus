@@ -38,7 +38,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - forge.agentforge.dev
+  - daedalus.dev
   resources:
   - agentcards
   - agentruntimes
@@ -54,7 +54,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - forge.agentforge.dev
+  - daedalus.dev
   resources:
   - agentcards/finalizers
   - agentruntimes/finalizers
@@ -64,7 +64,7 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - forge.agentforge.dev
+  - daedalus.dev
   resources:
   - agentcards/status
   - agentruntimes/status

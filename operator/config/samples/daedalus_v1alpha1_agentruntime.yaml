@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: AgentRuntime
 metadata:
   name: copilot-worker
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   type: Declarative
   conformanceLevel: Level2
@@ -54,7 +54,7 @@ spec:
       pushNotifications: false
   modelConfigRef:
     kind: ModelConfig
-    apiGroup: forge.agentforge.dev
+    apiGroup: daedalus.dev
     name: github-copilot
   env:
   - name: GITHUB_TOKEN

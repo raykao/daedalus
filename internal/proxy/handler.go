@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/acp"
-	contextmgmt "github.com/raykao/agent-forge/internal/contextmgmt"
-	"github.com/raykao/agent-forge/internal/queue"
+	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/acp"
+	contextmgmt "github.com/raykao/daedalus/internal/contextmgmt"
+	"github.com/raykao/daedalus/internal/queue"
 )
 
 // sessionCancelTimeout is the per-session timeout for ACP cancel calls during shutdown.

@@ -7,9 +7,9 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledJob
 metadata:
-  name: {{ include "agent-forge.workerFullname" (dict "root" $root "worker" $worker) }}
+  name: {{ include "daedalus.workerFullname" (dict "root" $root "worker" $worker) }}
   labels:
-    {{- include "agent-forge.labels" $root | nindent 4 }}
+    {{- include "daedalus.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $worker.name }}
 spec:
   jobTargetRef:
@@ -21,7 +21,7 @@ spec:
     template:
       metadata:
         labels:
-          {{- include "agent-forge.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 10 }}
+          {{- include "daedalus.workerSelectorLabels" (dict "root" $root "worker" $worker) | nindent 10 }}
       spec:
         # restartPolicy: Never - failed tasks nack the message rather than restarting the pod.
         # KEDA creates a new Job for each trigger event.
@@ -36,7 +36,7 @@ spec:
             emptyDir: {}
           - name: agent-registry
             configMap:
-              name: {{ include "agent-forge.fullname" $root }}-registry
+              name: {{ include "daedalus.fullname" $root }}-registry
 
         containers:
           # Proxy sidecar: consumes one message from NATS JetStream and drives the agent via ACP.
@@ -52,7 +52,7 @@ spec:
               - name: ACP_ADDR
                 value: "localhost:{{ $worker.acpPort | default 3000 }}"
               - name: NATS_URL
-                value: {{ include "agent-forge.natsURL" $root | quote }}
+                value: {{ include "daedalus.natsURL" $root | quote }}
               - name: NATS_STREAM
                 value: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
               - name: NATS_SUBJECT
@@ -65,7 +65,7 @@ spec:
               - name: workspace
                 mountPath: /workspace
               - name: agent-registry
-                mountPath: /etc/agent-forge
+                mountPath: /etc/daedalus
                 readOnly: true
             {{- with $worker.proxy.resources }}
             resources:
@@ -124,7 +124,7 @@ spec:
   triggers:
     - type: nats-jetstream
       metadata:
-        natsServerMonitoringEndpoint: {{ include "agent-forge.natsMonitoringURL" $root | quote }}
+        natsServerMonitoringEndpoint: {{ include "daedalus.natsMonitoringURL" $root | quote }}
         account: "$G"
         stream: {{ $root.Values.keda.natsStream | default "AGENT_TASKS" | quote }}
         consumer: {{ $worker.name | quote }}

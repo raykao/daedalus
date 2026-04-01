@@ -15,7 +15,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 const (

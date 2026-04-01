@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 func TestEchoHealthEndpoint(t *testing.T) {

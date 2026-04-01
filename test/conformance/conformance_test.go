@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 // newTestServer creates an httptest.Server running the reference A2A handler.

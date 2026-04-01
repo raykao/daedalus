@@ -1,4 +1,4 @@
-# agent-forge-operator - AI Agent Guide
+# daedalus-operator - AI Agent Guide
 
 ## Project Structure
 

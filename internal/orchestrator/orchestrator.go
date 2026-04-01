@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/dispatch"
+	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/dispatch"
 )
 
 // Orchestrator coordinates fan-out dispatch of multiple tasks concurrently.

@@ -8,8 +8,8 @@ import (
 
 	natsserver "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
-	"github.com/raykao/agent-forge/internal/a2a"
-	"github.com/raykao/agent-forge/internal/orchestrator"
+	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/orchestrator"
 )
 
 // startEmbeddedNATS starts an in-process NATS server (no JetStream needed for

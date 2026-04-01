@@ -1,18 +1,18 @@
-# Agent Forge Runtime Contract v1
+# Daedalus Runtime Contract v1
 
 ## Overview
 
-The Agent Forge Runtime Contract defines the interface between the **platform layer** (proxy sidecar) and the **user layer** (agent runtime container). Any container that implements this contract can be deployed as an agent worker in Agent Forge, regardless of language, framework, or AI provider.
+The Daedalus Runtime Contract defines the interface between the **platform layer** (proxy sidecar) and the **user layer** (agent runtime container). Any container that implements this contract can be deployed as an agent worker in Daedalus, regardless of language, framework, or AI provider.
 
 This contract enables pluggable runtimes: swap the agent container without changing the platform. The proxy sidecar handles NATS consumption, queue management, health monitoring, and trace propagation. The agent runtime only needs to be an A2A-compliant HTTP server.
 
 ## Architecture Context
 
-Agent Forge uses a two-container pod model:
+Daedalus uses a two-container pod model:
 
 ### Platform Layer (Proxy Sidecar)
 
-Managed by Agent Forge. The proxy:
+Managed by Daedalus. The proxy:
 
 - Consumes tasks from NATS JetStream queue (`agent.tasks.<name>`)
 - Forwards each task as an A2A `SendMessageRequest` to the agent runtime via `localhost:$A2A_PORT`

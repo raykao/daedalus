@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/telemetry"
+	"github.com/raykao/daedalus/internal/telemetry"
 )
 
 func TestNewProvider_Noop(t *testing.T) {

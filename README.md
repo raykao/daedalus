@@ -1,6 +1,6 @@
-# agent-forge
+# Daedalus
 
-Kubernetes-native agent orchestration platform. Dispatches work to ephemeral AI agent workers via message queues, using the [A2A protocol](https://a2a-protocol.org/) for structured communication and [KEDA](https://keda.sh/) for elastic scaling.
+Kubernetes-native agent orchestration platform. Named after the master builder of Greek mythology - the architect who designed complex systems and created autonomous workers. Dispatches work to ephemeral AI agent workers via message queues, using the [A2A protocol](https://a2a-protocol.org/) for structured communication and [KEDA](https://keda.sh/) for elastic scaling.
 
 **Runtime-agnostic by design.** The platform provides queue dispatch, scaling, discovery, and observability. Users bring their own agent runtime - copilot-bridge, kagent ADK, LangGraph, CrewAI, or any container that speaks A2A HTTP.
 
@@ -10,7 +10,7 @@ Kubernetes-native agent orchestration platform. Dispatches work to ephemeral AI 
 User (Mattermost) --> Orchestrator --> NATS JetStream --> Worker Pod
                       (A2A tasks)     (A2A envelope)       |
                                                        ┌───┴──────────────────────────────┐
-                                                       │ PLATFORM LAYER (Agent Forge)      │
+                                                       │ PLATFORM LAYER (Daedalus)      │
                                                        │   Queue-to-ACP Proxy sidecar      │
                                                        │   reads queue (A2A), drives agent  │
                                                        │   via ACP, writes results back     │

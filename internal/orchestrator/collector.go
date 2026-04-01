@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 // ResultCollector subscribes to NATS result and status subjects and provides

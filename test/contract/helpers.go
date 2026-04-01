@@ -62,7 +62,7 @@ func loadSchema(name string) (*jsonschema.Schema, error) {
 	if err != nil {
 		return nil, err
 	}
-	id := "https://agent-forge/schemas/" + name
+	id := "https://daedalus/schemas/" + name
 	return c.Compile(id)
 }
 

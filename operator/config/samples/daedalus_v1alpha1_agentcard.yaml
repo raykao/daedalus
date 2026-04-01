@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: AgentCard
 metadata:
   name: shared-copilot-card
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   agentName: copilot
   description: "Shared AgentCard for all copilot-bridge workers"

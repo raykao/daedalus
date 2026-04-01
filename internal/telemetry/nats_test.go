@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go"
-	"github.com/raykao/agent-forge/internal/telemetry"
+	"github.com/raykao/daedalus/internal/telemetry"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 

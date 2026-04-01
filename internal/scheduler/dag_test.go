@@ -3,7 +3,7 @@ package scheduler_test
 import (
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/scheduler"
+	"github.com/raykao/daedalus/internal/scheduler"
 )
 
 // ---------------------------------------------------------------------------

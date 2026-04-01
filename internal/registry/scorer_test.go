@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 func newEntry(name, runtime string, skills []a2a.AgentSkill) AgentEntry {

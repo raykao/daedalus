@@ -22,7 +22,7 @@ import (
 
 // TaskPipelineSpec defines the desired state of TaskPipeline.
 // A TaskPipeline declares multi-step workflow routing: fan-out/fan-in,
-// dependency ordering, and result aggregation. Novel to Agent Forge (no kagent equivalent).
+// dependency ordering, and result aggregation. Novel to Daedalus (no kagent equivalent).
 type TaskPipelineSpec struct {
 	// description is a human-readable description of this pipeline.
 	// +optional

@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 // TaskPipelineReconciler reconciles a TaskPipeline object
@@ -33,9 +33,9 @@ type TaskPipelineReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=taskpipelines,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=taskpipelines/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=forge.agentforge.dev,resources=taskpipelines/finalizers,verbs=update
+// +kubebuilder:rbac:groups=daedalus.dev,resources=taskpipelines,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=daedalus.dev,resources=taskpipelines/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=daedalus.dev,resources=taskpipelines/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -57,7 +57,7 @@ func (r *TaskPipelineReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // SetupWithManager sets up the controller with the Manager.
 func (r *TaskPipelineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&forgev1alpha1.TaskPipeline{}).
+		For(&daedalusv1alpha1.TaskPipeline{}).
 		Named("taskpipeline").
 		Complete(r)
 }

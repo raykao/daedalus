@@ -2,11 +2,11 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/forge.agentforge.dev_agentruntimes.yaml
-- bases/forge.agentforge.dev_modelconfigs.yaml
-- bases/forge.agentforge.dev_mcpservers.yaml
-- bases/forge.agentforge.dev_taskpipelines.yaml
-- bases/forge.agentforge.dev_agentcards.yaml
+- bases/daedalus.dev_agentruntimes.yaml
+- bases/daedalus.dev_modelconfigs.yaml
+- bases/daedalus.dev_mcpservers.yaml
+- bases/daedalus.dev_taskpipelines.yaml
+- bases/daedalus.dev_agentcards.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

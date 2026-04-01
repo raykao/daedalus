@@ -28,7 +28,7 @@ nats:
 # Proxy sidecar image - shared default across all workers
 proxy:
   image:
-    repository: ghcr.io/raykao/agent-forge-proxy
+    repository: ghcr.io/raykao/daedalus-proxy
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -171,7 +171,7 @@ workers:
     acpPort: 3000
     proxy:
       image:
-        repository: ghcr.io/raykao/agent-forge-proxy
+        repository: ghcr.io/raykao/daedalus-proxy
         tag: latest
         pullPolicy: IfNotPresent
       resources:

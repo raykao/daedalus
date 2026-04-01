@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/raykao/agent-forge/internal/a2a"
+	"github.com/raykao/daedalus/internal/a2a"
 )
 
 // AgentEntry binds an AgentCard to its infrastructure config.

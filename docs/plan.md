@@ -1,8 +1,8 @@
-# Agent Forge - Implementation Plan
+# Daedalus - Implementation Plan
 
 ## Overview
 
-Agent Forge is a Kubernetes-native platform that orchestrates ephemeral AI agent workers. It connects a chat-facing orchestrator (copilot-bridge on Mattermost) to headless worker bridges via NATS JetStream, using A2A protocol for structured agent communication and KEDA for elastic scaling.
+Daedalus is a Kubernetes-native platform that orchestrates ephemeral AI agent workers. It connects a chat-facing orchestrator (copilot-bridge on Mattermost) to headless worker bridges via NATS JetStream, using A2A protocol for structured agent communication and KEDA for elastic scaling.
 
 This plan covers Phase 0 (foundation) through the first deployable system. Later phases (session resurrection, K8s operator, multi-tenancy) are tracked as deferred items in the [research risk register](../research/hybrid-comms-architecture.md#open-questions-and-risk-register).
 
@@ -172,7 +172,7 @@ The proxy sidecar pattern from Phase 0 is inherently runtime-agnostic. The proxy
 │                                                                   │
 │  ┌────────────────────────┐    ┌────────────────────────────┐    │
 │  │  PLATFORM LAYER        │    │  USER LAYER                │    │
-│  │  (Agent Forge provides)│    │  (User brings their own)   │    │
+│  │  (Daedalus provides)│    │  (User brings their own)   │    │
 │  │                        │    │                            │    │
 │  │  Queue-to-A2A Proxy    │◄──►│  Any A2A-compliant server  │    │
 │  │  - NATS consumer       │HTTP│  ┌──────────────────────┐  │    │
@@ -196,7 +196,7 @@ The proxy sidecar pattern from Phase 0 is inherently runtime-agnostic. The proxy
 **What this enables:**
 - Users package their agent runtime as a container image
 - They declare it in an `AgentRuntime` CRD (or Helm values)
-- Agent Forge handles queue dispatch, scaling, discovery, observability
+- Daedalus handles queue dispatch, scaling, discovery, observability
 - No lock-in to copilot-bridge - swap runtimes without changing the platform
 - A kagent ADK agent and a copilot-bridge agent can run side by side in the same factory
 - Third-party agents (LangGraph, CrewAI, BeeAI, custom) plug in with zero platform changes

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed project from Agent Forge to Daedalus to avoid naming collision with unrelated Microsoft project
+- Go module: github.com/raykao/daedalus
+- CRD API group: daedalus.dev
+- Helm chart: deploy/helm/daedalus/
+- Docker images: ghcr.io/raykao/daedalus-proxy
+- Operator labels/identifiers: daedalus-operator
+
 ### Added
 
 - Copilot CLI Dockerfile for ACP server mode (Phase 4.1)

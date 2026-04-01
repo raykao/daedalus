@@ -1,8 +1,8 @@
-apiVersion: forge.agentforge.dev/v1alpha1
+apiVersion: daedalus.dev/v1alpha1
 kind: ModelConfig
 metadata:
   name: github-copilot
-  namespace: agent-forge
+  namespace: daedalus
 spec:
   provider: github-copilot
   model: copilot

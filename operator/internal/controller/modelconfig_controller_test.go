@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	forgev1alpha1 "github.com/raykao/agent-forge/operator/api/v1alpha1"
+	daedalusv1alpha1 "github.com/raykao/daedalus/operator/api/v1alpha1"
 )
 
 var _ = Describe("ModelConfig Controller", func() {
@@ -40,13 +40,13 @@ var _ = Describe("ModelConfig Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		modelconfig := &forgev1alpha1.ModelConfig{}
+		modelconfig := &daedalusv1alpha1.ModelConfig{}
 
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind ModelConfig")
 			err := k8sClient.Get(ctx, typeNamespacedName, modelconfig)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &forgev1alpha1.ModelConfig{
+				resource := &daedalusv1alpha1.ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,7 +59,7 @@ var _ = Describe("ModelConfig Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &forgev1alpha1.ModelConfig{}
+			resource := &daedalusv1alpha1.ModelConfig{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 

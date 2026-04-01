@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-forge/schemas/agent-card.schema.json",
+  "$id": "https://daedalus/schemas/agent-card.schema.json",
   "type": "object",
   "required": [
     "name",
