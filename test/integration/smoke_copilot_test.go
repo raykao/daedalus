@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,9 +28,6 @@ const (
 // smokeComposeFile is the path to the Copilot CLI Docker Compose file,
 // set during TestMain.
 var smokeComposeFile string
-
-// smokeSetupOnce ensures the stack is only started once across all tests.
-var smokeSetupOnce sync.Once
 
 func init() {
 	// Locate the compose file relative to this source file.
