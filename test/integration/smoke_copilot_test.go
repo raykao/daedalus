@@ -1,4 +1,4 @@
-//go:build smoke
+//go:build smoke && !integration
 
 package integration
 
@@ -163,14 +163,15 @@ func smokeWaitForNATS(timeout time.Duration) error {
 			continue
 		}
 		js, err := jetstream.New(nc)
-		nc.Close()
 		if err != nil {
+			nc.Close()
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err = js.AccountInfo(ctx)
 		cancel()
+		nc.Close()
 		if err == nil {
 			return nil
 		}
@@ -458,11 +459,14 @@ func TestSmoke_StatusTransitions(t *testing.T) {
 	publishSmokeTask(t, ctx, js, taskID, prompt)
 
 	// Collect all status updates until terminal state.
-	var updates []a2a.TaskStatus
-	var failedMsg string
-	statusDone := make(chan struct{})
+	type smokeStatusResult struct {
+		updates   []a2a.TaskStatus
+		failedMsg string
+	}
+	ch := make(chan smokeStatusResult, 1)
 	go func() {
-		defer close(statusDone)
+		var result smokeStatusResult
+		defer func() { ch <- result }()
 		for {
 			select {
 			case <-ctx.Done():
@@ -476,10 +480,10 @@ func TestSmoke_StatusTransitions(t *testing.T) {
 			}
 			var s a2a.TaskStatus
 			if jsonErr := json.Unmarshal(msg.Data(), &s); jsonErr == nil {
-				updates = append(updates, s)
+				result.updates = append(result.updates, s)
 				t.Logf("status: %s", s.State)
 				if s.State == a2a.TaskStateFailed && s.Message != nil {
-					failedMsg = s.Message.ExtractPromptText()
+					result.failedMsg = s.Message.ExtractPromptText()
 				}
 				if s.State == a2a.TaskStateCompleted || s.State == a2a.TaskStateFailed {
 					return
@@ -497,8 +501,12 @@ func TestSmoke_StatusTransitions(t *testing.T) {
 	_ = resultMsg.Ack()
 
 	// Wait for status collector.
+	var updates []a2a.TaskStatus
+	var failedMsg string
 	select {
-	case <-statusDone:
+	case r := <-ch:
+		updates = r.updates
+		failedMsg = r.failedMsg
 	case <-time.After(10 * time.Second):
 		t.Log("status collector timed out; using partial results")
 	}
@@ -581,10 +589,10 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 	publishSmokeTask(t, ctx, js, taskID, prompt)
 
 	// Collect at least one status update.
-	var statusTaskID string
-	statusDone := make(chan struct{})
+	statusTaskIDCh := make(chan string, 1)
 	go func() {
-		defer close(statusDone)
+		var captured string
+		defer func() { statusTaskIDCh <- captured }()
 		msg, fetchErr := statusCons.Next(jetstream.FetchContext(ctx))
 		if fetchErr != nil {
 			return
@@ -597,7 +605,7 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 			// Extract task ID from the NATS subject.
 			subj := msg.Subject()
 			if len(subj) > len("agent.status.") {
-				statusTaskID = subj[len("agent.status."):]
+				captured = subj[len("agent.status."):]
 			}
 			t.Logf("status received on subject: %s", subj)
 		}
@@ -617,8 +625,10 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 	_ = resultMsg.Ack()
 
 	// Wait for status goroutine.
+	var statusTaskID string
 	select {
-	case <-statusDone:
+	case id := <-statusTaskIDCh:
+		statusTaskID = id
 	case <-time.After(10 * time.Second):
 		t.Log("status collector timed out")
 	}

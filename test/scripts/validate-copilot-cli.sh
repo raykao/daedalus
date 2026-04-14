@@ -25,7 +25,17 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 # ---------------------------------------------------------------------------
 # Timing helpers (nanosecond precision)
 # ---------------------------------------------------------------------------
-now_ns() { date +%s%N; }
+now_ns() {
+    # GNU date supports %N (nanoseconds); macOS BSD date does not.
+    local ts
+    ts=$(date +%s%N 2>/dev/null)
+    if echo "$ts" | grep -q 'N'; then
+        # BSD date: fall back to second-precision with zero-padded nanoseconds
+        echo "$(date +%s)000000000"
+    else
+        echo "$ts"
+    fi
+}
 
 # elapsed_sec <start_ns> <end_ns> - prints floating-point seconds
 elapsed_sec() {
