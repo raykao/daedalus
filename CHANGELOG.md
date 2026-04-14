@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Copilot CLI Dockerfile for ACP server mode (Phase 4.1)
 - Docker Compose stack for real Copilot CLI validation
 - Validation script for end-to-end proxy + Copilot CLI testing
+- End-to-end smoke test suite for Copilot CLI validation with latency measurement (Phase 4.2)
+- Timing instrumentation in validation script with portable macOS support (Phase 4.2)
+- Makefile targets for integration and smoke tests (Phase 4.2)
+- Smoke test documentation with setup, troubleshooting, and debugging guide (Phase 4.2)
 
 ## Phase 3 - Pluggable Runtime and Operator
 
