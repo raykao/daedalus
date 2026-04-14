@@ -122,7 +122,11 @@ func smokeWaitForHealth(timeout time.Duration) error {
 				}
 				var svc serviceInfo
 				if jsonErr := json.Unmarshal(line, &svc); jsonErr == nil {
-					if svc.Health == "healthy" || svc.State == "running" {
+					switch {
+					case svc.Health == "healthy":
+						healthy++
+					case svc.Health == "" && svc.State == "running":
+						// No health check configured; accept running state
 						healthy++
 					}
 				}
@@ -325,7 +329,6 @@ func TestSmoke_EndToEnd(t *testing.T) {
 					result.firstStatusAt = now
 				}
 				result.updates = append(result.updates, s)
-				t.Logf("status update: state=%s", s.State)
 				if s.State == a2a.TaskStateCompleted || s.State == a2a.TaskStateFailed {
 					result.completedAt = now
 					statusCh <- result
@@ -371,11 +374,9 @@ func TestSmoke_EndToEnd(t *testing.T) {
 	}
 
 	// Wait for the status collector goroutine to finish.
-	var statuses statusCollectorResult
-	select {
-	case statuses = <-statusCh:
-	case <-time.After(10 * time.Second):
-		t.Log("status collector timed out; using partial results")
+	statuses := <-statusCh
+	for _, s := range statuses.updates {
+		t.Logf("status update: state=%s", s.State)
 	}
 
 	// --- Latency Report ---
@@ -481,7 +482,6 @@ func TestSmoke_StatusTransitions(t *testing.T) {
 			var s a2a.TaskStatus
 			if jsonErr := json.Unmarshal(msg.Data(), &s); jsonErr == nil {
 				result.updates = append(result.updates, s)
-				t.Logf("status: %s", s.State)
 				if s.State == a2a.TaskStateFailed && s.Message != nil {
 					result.failedMsg = s.Message.ExtractPromptText()
 				}
@@ -501,14 +501,11 @@ func TestSmoke_StatusTransitions(t *testing.T) {
 	_ = resultMsg.Ack()
 
 	// Wait for status collector.
-	var updates []a2a.TaskStatus
-	var failedMsg string
-	select {
-	case r := <-ch:
-		updates = r.updates
-		failedMsg = r.failedMsg
-	case <-time.After(10 * time.Second):
-		t.Log("status collector timed out; using partial results")
+	r := <-ch
+	updates := r.updates
+	failedMsg := r.failedMsg
+	for _, s := range updates {
+		t.Logf("status: %s", s.State)
 	}
 
 	states := smokeStateList(updates)
@@ -607,7 +604,6 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 			if len(subj) > len("agent.status.") {
 				captured = subj[len("agent.status."):]
 			}
-			t.Logf("status received on subject: %s", subj)
 		}
 		_ = msg.Ack()
 	}()
@@ -625,12 +621,9 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 	_ = resultMsg.Ack()
 
 	// Wait for status goroutine.
-	var statusTaskID string
-	select {
-	case id := <-statusTaskIDCh:
-		statusTaskID = id
-	case <-time.After(10 * time.Second):
-		t.Log("status collector timed out")
+	statusTaskID := <-statusTaskIDCh
+	if statusTaskID != "" {
+		t.Logf("status received for task: %s", statusTaskID)
 	}
 
 	// Assert: result task ID matches published task ID.
@@ -643,7 +636,7 @@ func TestSmoke_TaskIDPropagation(t *testing.T) {
 		t.Errorf("status task ID: want %q, got %q", taskID, statusTaskID)
 	}
 	if statusTaskID == "" {
-		t.Log("warning: no status task ID captured (status may not have arrived)")
+		t.Error("no status task ID captured: status propagation not verified")
 	}
 
 	t.Logf("PASS: task ID %q propagated correctly through pipeline", taskID)
