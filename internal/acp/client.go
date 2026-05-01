@@ -54,7 +54,9 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.conn = conn
 	c.writer = bufio.NewWriter(conn)
 
-	readerCtx, readerCancel := context.WithCancel(ctx)
+	// Use context.Background() — the readLoop must outlive the connect context.
+	// It is stopped only when Close() calls c.cancel().
+	readerCtx, readerCancel := context.WithCancel(context.Background())
 	c.cancel = readerCancel
 
 	go c.readLoop(readerCtx)
