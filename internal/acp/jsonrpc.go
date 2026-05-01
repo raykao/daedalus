@@ -38,7 +38,7 @@ func (r *Response) IsNotification() bool {
 
 // InitializeParams for the initialize method
 type InitializeParams struct {
-	ProtocolVersion string             `json:"protocolVersion"`
+	ProtocolVersion int                `json:"protocolVersion"`
 	Capabilities    ClientCapabilities `json:"capabilities"`
 	ClientInfo      ClientInfo         `json:"clientInfo"`
 }
@@ -56,7 +56,7 @@ type ClientInfo struct {
 
 // InitializeResult from the initialize method
 type InitializeResult struct {
-	ProtocolVersion string             `json:"protocolVersion"`
+	ProtocolVersion int                `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
 	ServerInfo      ServerInfo         `json:"serverInfo"`
 }
@@ -75,7 +75,7 @@ type ServerInfo struct {
 
 // SessionNewParams for session/new
 type SessionNewParams struct {
-	WorkDir    string        `json:"workDir"`
+	WorkDir    string        `json:"cwd"`
 	MCPServers []interface{} `json:"mcpServers"`
 }
 
@@ -84,10 +84,16 @@ type SessionNewResult struct {
 	SessionID string `json:"sessionId"`
 }
 
+// PromptPart is a single content part in a session/prompt request
+type PromptPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 // SessionPromptParams for session/prompt
 type SessionPromptParams struct {
-	SessionID string `json:"sessionId"`
-	Prompt    string `json:"prompt"`
+	SessionID string       `json:"sessionId"`
+	Prompt    []PromptPart `json:"prompt"`
 }
 
 // SessionPromptResult from session/prompt

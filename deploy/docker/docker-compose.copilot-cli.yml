@@ -53,8 +53,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.proxy
+    network_mode: "service:copilot-cli"
     environment:
-      ACP_ADDR: copilot-cli:3000
+      ACP_ADDR: localhost:3000
       NATS_URL: nats://nats:4222
       NATS_STREAM: AGENT_TASKS
       NATS_SUBJECT: "agent.tasks.>"

@@ -16,7 +16,7 @@ import (
 const (
 	defaultDialTimeout  = 10 * time.Second
 	defaultWriteTimeout = 5 * time.Second
-	protocolVersion     = "2025-01-01"
+	protocolVersion     = 1
 )
 
 // Client is an ACP client that speaks JSON-RPC 2.0 over TCP
@@ -111,7 +111,7 @@ func (c *Client) NewSession(ctx context.Context, workDir string) (string, error)
 func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (string, error) {
 	params := SessionPromptParams{
 		SessionID: sessionID,
-		Prompt:    prompt,
+		Prompt:    []PromptPart{{Type: "text", Text: prompt}},
 	}
 
 	// Register a delta collector before sending the request

@@ -75,7 +75,7 @@ func TestInitialize(t *testing.T) {
 			return
 		}
 		result := InitializeResult{
-			ProtocolVersion: "2025-01-01",
+			ProtocolVersion: 1,
 			Capabilities:    ServerCapabilities{Streaming: true, LoadSession: true},
 			ServerInfo:      ServerInfo{Name: "test-agent", Version: "1.0.0"},
 		}
@@ -97,8 +97,8 @@ func TestInitialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	if result.ProtocolVersion != "2025-01-01" {
-		t.Errorf("expected protocolVersion 2025-01-01, got %s", result.ProtocolVersion)
+	if result.ProtocolVersion != 1 {
+		t.Errorf("expected protocolVersion 1, got %d", result.ProtocolVersion)
 	}
 }
 

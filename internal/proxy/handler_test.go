@@ -58,12 +58,12 @@ func handleMockACPConn(conn net.Conn) {
 			continue
 		}
 		switch req.Method {
-		case "initialize":
-			result := acp.InitializeResult{
-				ProtocolVersion: "2025-01-01",
-				Capabilities:    acp.ServerCapabilities{Streaming: true},
-				ServerInfo:      acp.ServerInfo{Name: "mock-agent", Version: "1.0.0"},
-			}
+			case "initialize":
+				result := acp.InitializeResult{
+					ProtocolVersion: 1,
+					Capabilities:    acp.ServerCapabilities{Streaming: true},
+					ServerInfo:      acp.ServerInfo{Name: "mock-agent", Version: "1.0.0"},
+				}
 			raw, _ := json.Marshal(result)
 			writeJSON(acp.Response{JSONRPC: "2.0", ID: req.ID, Result: raw})
 
@@ -85,9 +85,13 @@ func handleMockACPConn(conn net.Conn) {
 			time.Sleep(5 * time.Millisecond)
 
 			// Final result
+			promptText := ""
+			if len(params.Prompt) > 0 {
+				promptText = params.Prompt[0].Text
+			}
 			result := acp.SessionPromptResult{
 				SessionID: params.SessionID,
-				Content:   "mock response to: " + params.Prompt,
+				Content:   "mock response to: " + promptText,
 			}
 			raw, _ = json.Marshal(result)
 			writeJSON(acp.Response{JSONRPC: "2.0", ID: req.ID, Result: raw})
