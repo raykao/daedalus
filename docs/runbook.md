@@ -10,7 +10,7 @@
 - [ ] `az` CLI 2.50+ (`az --version`)
 - [ ] `kubectl` 1.28+ (`kubectl version --client`)
 - [ ] `helm` 3.12+ (`helm version`)
-- [ ] `terraform` 1.5+ (`terraform --version`)
+- [ ] `terraform` 1.7+ (`terraform --version`)
 - [ ] Docker (for image builds)
 - [ ] GitHub token with Copilot access
 - [ ] Azure subscription with Contributor access to a resource group
@@ -60,7 +60,7 @@ az aks get-credentials --resource-group <RESOURCE_GROUP> --name <CLUSTER_NAME>
 **5.** Verify KEDA is running in the cluster.
 
 ```bash
-kubectl get pods -n kube-system -l app=keda-operator
+kubectl get pods -n keda -l app=keda-operator
 ```
 
 Expected: one `keda-operator` pod in `Running` state.
@@ -167,7 +167,7 @@ Expected: one ScaledJob named `daedalus-copilot` (or similar) in `Ready` state.
 **15.** Run the end-to-end validation script. It creates the JetStream stream, publishes a test task, waits for a Job pod to start, measures cold-start latency, and validates graceful shutdown.
 
 ```bash
-RELEASE_NAME=daedalus NAMESPACE=daedalus \
+GITHUB_TOKEN=<GITHUB_TOKEN> RELEASE_NAME=daedalus NAMESPACE=daedalus \
   bash test/scripts/validate-aks-deployment.sh
 ```
 
