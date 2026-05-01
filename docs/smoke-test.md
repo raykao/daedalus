@@ -20,20 +20,52 @@ produce valid A2A Task results.
 
 - **Docker and Docker Compose** (v2+ with `docker compose` syntax)
 - **Go 1.25+** (for the Go smoke test)
-- **`GITHUB_TOKEN`** with GitHub Copilot access (PAT or fine-grained token)
+- **`GITHUB_TOKEN`** with GitHub Copilot access (fine-grained PAT with "Copilot Requests: read" permission).
+  Store in `smoke.env` at the repo root (gitignored) - see [Credentials Setup](#credentials-setup) below.
 - **Available ports:**
   - `4222` - NATS client connections
   - `8222` - NATS monitoring HTTP
   - `3000` - Copilot CLI ACP listener
 
+## Credentials Setup
+
+The smoke test requires a GitHub fine-grained PAT with **Copilot Requests: read** permission.
+
+1. Generate a token at <https://github.com/settings/tokens?type=beta>
+   - Select **Copilot** > **Requests** > **Read-only**
+2. Add your token to `smoke.env` at the repo root (this file is gitignored):
+
+   ```
+   GITHUB_TOKEN=github_pat_...your-token-here...
+   ```
+
+3. The `make test-smoke` target auto-sources `smoke.env` if `GITHUB_TOKEN` is not already set in the environment. You can also export it manually:
+
+   ```bash
+   export GITHUB_TOKEN=github_pat_...
+   make test-smoke
+   ```
+
+> **Security**: `smoke.env` is listed in `.gitignore` and must never be committed. Do not add it to `.env` files that are tracked by git.
+
 ## Quick Start
+
+```bash
+# Option A: use smoke.env (recommended)
+# smoke.env already exists as a template - just fill in GITHUB_TOKEN
+# Edit smoke.env and set GITHUB_TOKEN=<your-token>
+make test-smoke
+
+# Option B: set env var directly
+GITHUB_TOKEN=<your-token> make test-smoke
+```
 
 ### Using the validation script (bash)
 
 The bash script is a standalone validator with timing instrumentation:
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
+# Set GITHUB_TOKEN in smoke.env or environment, then:
 ./test/scripts/validate-copilot-cli.sh
 ```
 
@@ -46,14 +78,12 @@ The Go test provides structured assertions, parallel-safe task IDs, and
 detailed latency measurement:
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
 make test-smoke
 ```
 
-Or directly with `go test`:
+Or directly with `go test` (requires `GITHUB_TOKEN` in env):
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
 go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s
 ```
 
