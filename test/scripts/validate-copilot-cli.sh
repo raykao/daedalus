@@ -22,6 +22,33 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# ---------------------------------------------------------------------------
+# Timing helpers (nanosecond precision)
+# ---------------------------------------------------------------------------
+now_ns() {
+    # GNU date supports %N (nanoseconds); macOS BSD date does not.
+    local ts
+    ts=$(date +%s%N 2>/dev/null)
+    if echo "$ts" | grep -q 'N'; then
+        # BSD date: fall back to second-precision with zero-padded nanoseconds
+        echo "$(date +%s)000000000"
+    else
+        echo "$ts"
+    fi
+}
+
+# elapsed_sec <start_ns> <end_ns> - prints floating-point seconds
+elapsed_sec() {
+    local start="$1" end="$2"
+    local diff=$(( end - start ))
+    # Integer division + remainder to get seconds.nanoseconds
+    local secs=$(( diff / 1000000000 ))
+    local nanos=$(( diff % 1000000000 ))
+    printf "%d.%03d" "$secs" "$(( nanos / 1000000 ))"
+}
+
+T_START=$(now_ns)
+
 cleanup() {
     info "Tearing down stack..."
     docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
@@ -58,6 +85,7 @@ info ""
 
 info "Step 1: Building images..."
 docker compose -f "$COMPOSE_FILE" build --quiet
+T_BUILD=$(now_ns)
 
 # ---------------------------------------------------------------------------
 # Step 2: Start the stack
@@ -65,6 +93,7 @@ docker compose -f "$COMPOSE_FILE" build --quiet
 
 info "Step 2: Starting stack..."
 docker compose -f "$COMPOSE_FILE" up -d
+T_STACK_UP=$(now_ns)
 
 # ---------------------------------------------------------------------------
 # Step 3: Wait for all services to be healthy
@@ -84,6 +113,7 @@ print(healthy)
 
     if [ "$HEALTHY" -ge 3 ]; then
         info "All services healthy after ${ELAPSED}s"
+        T_HEALTHY=$(now_ns)
         break
     fi
     sleep 2
@@ -96,6 +126,9 @@ if [ $ELAPSED -ge $TIMEOUT ]; then
     docker compose -f "$COMPOSE_FILE" logs copilot-cli --tail=50
     exit 1
 fi
+
+# If we timed out the loop but didn't break, T_HEALTHY may not be set.
+T_HEALTHY=${T_HEALTHY:-$(now_ns)}
 
 # ---------------------------------------------------------------------------
 # Step 4: Create NATS JetStream streams
@@ -122,6 +155,7 @@ add_stream() {
 add_stream AGENT_TASKS   "agent.tasks.>"
 add_stream AGENT_RESULTS "agent.results.>"
 add_stream AGENT_STATUS  "agent.status.>"
+T_STREAMS=$(now_ns)
 
 # ---------------------------------------------------------------------------
 # Step 5: Publish a test task
@@ -150,6 +184,7 @@ else
     echo "$TASK_JSON" | nats pub "agent.tasks.${TASK_ID}" --stdin \
         --server nats://localhost:4222
 fi
+T_PUBLISH=$(now_ns)
 
 # ---------------------------------------------------------------------------
 # Step 6: Wait for result
@@ -181,10 +216,28 @@ if [ -z "$RESULT" ]; then
     exit 1
 fi
 
+T_RESULT=$(now_ns)
+
 # Parse result JSON
 STATE=$(echo "$RESULT" | python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('status',{}).get('state','unknown'))" \
     2>/dev/null || echo "parse_error")
+
+# ---------------------------------------------------------------------------
+# Latency Summary
+# ---------------------------------------------------------------------------
+
+print_latency_summary() {
+    info ""
+    info "=== Latency Summary ==="
+    info "Image build:        $(elapsed_sec "$T_START" "$T_BUILD")s"
+    info "Stack startup:      $(elapsed_sec "$T_BUILD" "$T_STACK_UP")s"
+    info "Health ready:       $(elapsed_sec "$T_STACK_UP" "$T_HEALTHY")s"
+    info "Stream creation:    $(elapsed_sec "$T_HEALTHY" "$T_STREAMS")s"
+    info "Task round-trip:    $(elapsed_sec "$T_PUBLISH" "$T_RESULT")s  (publish -> result)"
+    info "Total wall time:    $(elapsed_sec "$T_START" "$T_RESULT")s"
+    info ""
+}
 
 if [ "$STATE" = "completed" ]; then
     info ""
@@ -196,13 +249,16 @@ if [ "$STATE" = "completed" ]; then
     info ""
     info "Result:"
     echo "$RESULT" | python3 -m json.tool 2>/dev/null || echo "$RESULT"
+    print_latency_summary
     exit 0
 elif [ "$STATE" = "failed" ]; then
     warn "Task completed with FAILED state"
     echo "$RESULT" | python3 -m json.tool 2>/dev/null || echo "$RESULT"
+    print_latency_summary
     exit 1
 else
     error "Unexpected task state: $STATE"
     echo "$RESULT" | python3 -m json.tool 2>/dev/null || echo "$RESULT"
+    print_latency_summary
     exit 1
 fi
