@@ -19,7 +19,8 @@ variable "cluster_name" {
 variable "kubernetes_version" {
   description = "Kubernetes version for the AKS cluster"
   type        = string
-  default     = "1.30"
+  # Check AKS supported versions before deploying: https://learn.microsoft.com/azure/aks/supported-kubernetes-versions
+  default = "1.30"
 }
 
 variable "node_vm_size" {

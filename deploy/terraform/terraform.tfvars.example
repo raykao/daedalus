@@ -4,6 +4,7 @@
 location            = "eastus2"
 resource_group_name = "rg-daedalus-test"
 cluster_name        = "aks-daedalus-test"
+# Check supported versions: https://learn.microsoft.com/azure/aks/supported-kubernetes-versions
 kubernetes_version  = "1.30"
 node_vm_size        = "Standard_D2s_v3"
 node_count          = 2

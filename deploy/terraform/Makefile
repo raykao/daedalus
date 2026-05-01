@@ -2,7 +2,7 @@
 #
 # Usage:
 #   make init       - initialize providers and modules
-#   make plan       - show planned changes
+#   make plan       - show planned changes (requires cluster from Phase 1 on a fresh workspace)
 #   make deploy     - apply in two phases: AKS first, then KEDA
 #   make destroy    - tear down all resources
 #
@@ -21,6 +21,8 @@ init:
 	terraform init
 
 plan: init
+	@echo "Note: 'terraform plan' may fail on a fresh workspace if the AKS cluster does not exist yet."
+	@echo "      Run 'make deploy' first to provision the cluster, then use 'make plan' for subsequent changes."
 	terraform plan
 
 deploy: init
