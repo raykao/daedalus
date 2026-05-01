@@ -119,34 +119,28 @@ The smoke test validates each stage of the pipeline:
 
 ## Expected Latencies
 
-| Phase | Expected Range | Notes |
-|-------|---------------|-------|
-| Stack startup | 10-30s | Image pulls on first run |
-| Service health | 15-45s | Copilot CLI ACP listener startup |
-| Task round-trip | 10-60s | Depends on prompt complexity and model |
-| Total wall time | 60-180s | First run slower due to image builds |
+Measured against `@github/copilot@1.0.36` with the `auto` model (Claude Sonnet 4.6),
+running in Docker on an Azure VM, 2025-05-01:
 
-The validation script prints a detailed timing breakdown:
-
-```
-=== Latency Summary ===
-Image build:        12.345s
-Stack startup:      3.210s
-Health ready:       28.456s
-Stream creation:    1.234s
-Task round-trip:    15.678s  (publish -> result)
-Total wall time:    60.923s
-```
+| Phase | Measured | Notes |
+|-------|----------|-------|
+| Publish -> First Status | ~1ms | Proxy picks up task almost instantly |
+| First Status -> Complete | ~53s | Includes ACP round-trips and model inference |
+| Total Round-Trip | ~53s | publish to final result on NATS |
 
 The Go test logs per-step latency:
 
 ```
 === Smoke Test Latency ===
-Publish -> First Status:  1234ms
-First Status -> Complete: 14567ms
-Total Round-Trip:         15801ms
+Publish -> First Status:  1ms
+First Status -> Complete: 53148ms
+Total Round-Trip:         53150ms
 Status Transitions: [working completed]
 ```
+
+Latency varies with model response time and whether the agent uses tools
+(file creation prompts trigger one or more `session/request_permission` round-trips
+before the model responds, adding 5-15s per tool call).
 
 ## Interpreting Results
 
