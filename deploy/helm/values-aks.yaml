@@ -1,0 +1,104 @@
+# values-aks.yaml - AKS-specific overlay for the Daedalus Helm chart.
+#
+# This file is applied on top of values.yaml when deploying to AKS:
+#
+#   helm upgrade --install daedalus deploy/helm/daedalus/ \
+#     -f deploy/helm/values.yaml \
+#     -f deploy/helm/values-aks.yaml
+#
+# Do NOT use this file standalone - it only overrides the fields listed here.
+
+# ---------------------------------------------------------------------------
+# KEDA - enable ScaledJob mode for AKS.
+# In the default values.yaml keda.enabled=false which renders Deployments.
+# On AKS, KEDA is installed by Terraform (see deploy/terraform/) and we want
+# scale-to-zero behaviour, so we flip the flag here.
+# ---------------------------------------------------------------------------
+keda:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# NATS - use the in-cluster NATS StatefulSet deployed by the subchart.
+# The default values.yaml already sets nats.enabled=true, but we repeat it
+# here to make the intent explicit: this cluster does NOT use an external
+# NATS endpoint.
+# ---------------------------------------------------------------------------
+nats:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# imagePullSecrets - ACR credentials for pulling private images.
+# Create the secret before deploying:
+#
+#   kubectl create secret docker-registry acr-pull-secret \
+#     --namespace daedalus \
+#     --docker-server=daedalustest.azurecr.io \
+#     --docker-username=<service-principal-client-id> \
+#     --docker-password=<service-principal-client-secret>
+#
+# The Helm chart injects this into every Job pod spec via imagePullSecrets.
+# ---------------------------------------------------------------------------
+imagePullSecrets:
+  - name: acr-pull-secret
+
+# ---------------------------------------------------------------------------
+# proxy.image - use the image pushed to ACR by the CI pipeline.
+# The default values.yaml points to ghcr.io/raykao/daedalus-proxy (public).
+# On AKS we pull from the private ACR that Terraform provisions.
+# ---------------------------------------------------------------------------
+proxy:
+  image:
+    repository: daedalustest.azurecr.io/daedalus-proxy
+    tag: latest
+    pullPolicy: Always
+
+# ---------------------------------------------------------------------------
+# workers - AKS-specific overrides per worker entry.
+# The name field must match the corresponding entry in values.yaml so that
+# Helm merges correctly. Only override what differs from the defaults.
+# ---------------------------------------------------------------------------
+workers:
+  - name: copilot
+    enabled: true
+    queueSubject: "agent.tasks.copilot"
+    acpPort: 3000
+
+    # Image - pull from ACR instead of ghcr.io.
+    image:
+      repository: daedalustest.azurecr.io/copilot-bridge
+      tag: latest
+      pullPolicy: Always
+
+    # Resources - higher than local-dev defaults because this runs on real
+    # AKS nodes. The proxy drives full ACP sessions; the agent runs the
+    # full Copilot CLI which needs headroom for JIT compilation and downloads.
+    proxy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+    # env - inject runtime secrets from Kubernetes Secrets.
+    # GITHUB_TOKEN must be present before deploying; create with:
+    #
+    #   kubectl create secret generic copilot-secret \
+    #     --namespace daedalus \
+    #     --from-literal=github-token=<ghp_...>
+    #
+    env:
+      - name: GITHUB_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: copilot-secret
+            key: github-token
