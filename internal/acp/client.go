@@ -313,19 +313,17 @@ func (c *Client) handleServerRequest(msg *Response) {
 			return
 		}
 		c.logger.Info("acp: auto-approving permission request", "sessionId", params.SessionID)
-		reqID := *msg.ID
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			result := PermissionApprovalResult{
-				Outcome: PermissionOutcome{OptionID: "allow_once"},
-			}
-			if err := c.sendResponse(ctx, reqID, result); err != nil {
-				c.logger.Error("acp: failed to send permission approval", "err", err)
-			}
-		}()
+		result := PermissionApprovalResult{
+			Outcome: PermissionOutcome{OptionID: "allow_once"},
+		}
+		if err := c.sendResponse(context.Background(), *msg.ID, result); err != nil {
+			c.logger.Error("acp: failed to send permission approval", "err", err)
+		}
 	default:
-		c.logger.Debug("acp: unhandled server request", "method", msg.Method)
+		c.logger.Warn("acp: unhandled server request", "method", msg.Method, "id", *msg.ID)
+		if err := c.sendRPCError(*msg.ID, -32601, "method not found: "+msg.Method); err != nil {
+			c.logger.Error("acp: failed to send method-not-found response", "err", err)
+		}
 	}
 }
 
@@ -366,6 +364,34 @@ func (c *Client) sendResponse(ctx context.Context, id int64, result interface{})
 	})
 	if err != nil {
 		return fmt.Errorf("marshal response: %w", err)
+	}
+	data = append(data, '\n')
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := c.conn.SetWriteDeadline(time.Now().Add(defaultWriteTimeout)); err != nil {
+		return fmt.Errorf("set write deadline: %w", err)
+	}
+	if _, err := c.writer.Write(data); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return c.writer.Flush()
+}
+
+// sendRPCError sends a JSON-RPC error response for a server-to-client request.
+// Used when the method is not recognized (code -32601) or otherwise cannot be handled.
+func (c *Client) sendRPCError(id int64, code int, message string) error {
+	data, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]interface{}{
+			"code":    code,
+			"message": message,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal rpc error: %w", err)
 	}
 	data = append(data, '\n')
 

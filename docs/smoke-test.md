@@ -52,7 +52,8 @@ The smoke test requires a GitHub fine-grained PAT with **Copilot Requests: read*
 
 ```bash
 # Option A: use smoke.env (recommended)
-# smoke.env already exists as a template - just fill in GITHUB_TOKEN
+# Copy smoke.env.example to smoke.env and fill in GITHUB_TOKEN
+cp smoke.env.example smoke.env
 # Edit smoke.env and set GITHUB_TOKEN=<your-token>
 make test-smoke
 

@@ -45,7 +45,7 @@ test-smoke:
 	elif [ -n "$$GITHUB_TOKEN" ]; then \
 		go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s; \
 	else \
-		echo "ERROR: GITHUB_TOKEN not set. Set it in the environment or create smoke.env (see smoke.env for template)."; \
+		echo "ERROR: GITHUB_TOKEN not set. Set it in the environment or copy smoke.env.example to smoke.env and fill in your token."; \
 		exit 1; \
 	fi
 
