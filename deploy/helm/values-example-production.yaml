@@ -88,8 +88,8 @@ workers:
 
     image:
       repository: <YOUR_ACR_LOGIN_SERVER>/copilot-bridge   # e.g. myacr.azurecr.io/copilot-bridge
-      tag: "latest"
-      pullPolicy: IfNotPresent
+      tag: "latest"        # Pin to a specific version tag (e.g. "0.1.0") for production
+      pullPolicy: IfNotPresent   # IfNotPresent is safe only with a pinned tag; use Always with "latest"
 
     # proxy sidecar - production sizing with headroom for ACP session management
     proxy:
@@ -126,15 +126,15 @@ workers:
     # Set enabled: true after creating the claude-secret:
     #   kubectl create secret generic claude-secret \
     #     --from-literal=anthropic-api-key=<ANTHROPIC_API_KEY> \
-    #     --namespace <NAMESPACE>
+    #     --namespace daedalus
     enabled: false
     queueSubject: "agent.tasks.claude"
     acpPort: 3001
 
     image:
       repository: <YOUR_ACR_LOGIN_SERVER>/claude-agent   # replace with your Claude agent image
-      tag: "latest"
-      pullPolicy: IfNotPresent
+      tag: "latest"        # Pin to a specific version tag (e.g. "0.1.0") for production
+      pullPolicy: IfNotPresent   # IfNotPresent is safe only with a pinned tag; use Always with "latest"
 
     # proxy sidecar
     proxy:
