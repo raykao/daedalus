@@ -44,7 +44,7 @@ nats:
 proxy:
   image:
     repository: <YOUR_ACR_LOGIN_SERVER>/daedalus-proxy   # e.g. myacr.azurecr.io/daedalus-proxy
-    tag: "0.1.0"
+    tag: "latest"    # Pin to a specific version tag (e.g. "0.1.0") for production
     pullPolicy: IfNotPresent   # use Always only during active development; IfNotPresent avoids redundant pulls in production
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,11 @@ workers:
   # Add any required API key secrets in the env section below.
   # -------------------------------------------------------------------------
   - name: claude
-    enabled: true
+    # Set enabled: true after creating the claude-secret:
+    #   kubectl create secret generic claude-secret \
+    #     --from-literal=anthropic-api-key=<ANTHROPIC_API_KEY> \
+    #     --namespace <NAMESPACE>
+    enabled: false
     queueSubject: "agent.tasks.claude"
     acpPort: 3001
 
