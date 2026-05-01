@@ -12,7 +12,7 @@ resource "azurerm_kubernetes_cluster" "main" {
     os_disk_size_gb = 128
 
     upgrade_settings {
-      max_surge = "10%"
+      max_surge = "1" # explicit count; unambiguous for small test pools
     }
   }
 

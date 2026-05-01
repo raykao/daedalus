@@ -1,6 +1,18 @@
 terraform {
   required_version = ">= 1.7"
 
+  # ---------------------------------------------------------------------------
+  # Remote state backend (recommended for shared/team use).
+  # Uncomment and fill in values before first `terraform init`.
+  # Create the storage account and container manually before using this.
+  # ---------------------------------------------------------------------------
+  # backend "azurerm" {
+  #   resource_group_name  = "rg-tfstate"
+  #   storage_account_name = "stterraformstate"
+  #   container_name       = "daedalus-tfstate"
+  #   key                  = "phase4-test-cluster.tfstate"
+  # }
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"

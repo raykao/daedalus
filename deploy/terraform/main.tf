@@ -1,5 +1,3 @@
-data "azurerm_client_config" "current" {}
-
 resource "random_string" "suffix" {
   length  = 4
   upper   = false
