@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `docs/runbook.md` - Deployment runbook: step-by-step guide for deploying Daedalus to AKS in under 30 minutes (Phase 4.5)
+- `deploy/helm/values-example-production.yaml` - Annotated example values overlay for production deployments (Phase 4.5)
 - Copilot CLI Dockerfile for ACP server mode (Phase 4.1)
 - Docker Compose stack for real Copilot CLI validation
 - Validation script for end-to-end proxy + Copilot CLI testing
