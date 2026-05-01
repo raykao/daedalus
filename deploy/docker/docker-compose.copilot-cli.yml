@@ -22,7 +22,7 @@ services:
       start_period: 5s
 
   nats-box:
-    image: natsio/nats-box:0.14
+    image: natsio/nats-box:0.19.5
     depends_on:
       nats:
         condition: service_healthy
