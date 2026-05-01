@@ -163,7 +163,7 @@ info "=== Step 4: Verifying scale-to-zero baseline ==="
 # Drain any stale active workloads before measuring baseline.
 # Use pod-based count - KEDA retains completed Job objects indefinitely per
 # successfulJobsHistoryLimit, so raw Job count is always > 0 on a warm cluster.
-JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" -l job-name --no-headers 2>/dev/null \
     | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
 if [ "$JOB_COUNT" -gt 0 ]; then
     warn "$JOB_COUNT active pods still running from a previous run. Waiting up to 60s for them to clear..."
@@ -171,12 +171,12 @@ if [ "$JOB_COUNT" -gt 0 ]; then
     while [ "$JOB_COUNT" -gt 0 ] && [ "$WAIT" -lt 60 ]; do
         sleep 5
         WAIT=$((WAIT + 5))
-        JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+        JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" -l job-name --no-headers 2>/dev/null \
             | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
     done
 fi
 
-JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" -l job-name --no-headers 2>/dev/null \
     | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
 if [ "$JOB_COUNT" -eq 0 ]; then
     pass "Scale-to-zero confirmed: 0 active pods in namespace (queue is empty)"
@@ -326,6 +326,11 @@ JOB_NAME=$(kubectl get jobs -n "$NAMESPACE" \
     --sort-by=.metadata.creationTimestamp \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
     | tail -1)
+if [ -z "$JOB_NAME" ]; then
+    fail "Could not determine Job name after detecting new Job (API server propagation race)"
+    fail "Re-run the script; if this recurs, increase COLD_START_TIMEOUT"
+    exit 1
+fi
 info "Tracking job: $JOB_NAME"
 
 JOB_TIMEOUT=120
@@ -387,7 +392,15 @@ if [ "${JOB_SUCCEEDED:-0}" -eq 0 ] && [ -n "${RESULT_SUB_PID:-}" ]; then
     RESULT_SUB_PID=""
 fi
 if [ -n "$RESULT_SUB_PID" ]; then
-    wait "$RESULT_SUB_PID" 2>/dev/null || true
+    info "Waiting up to 10s for result subscriber..."
+    RESULT_WAIT=10
+    # Start a background killer after the grace period
+    ( sleep "$RESULT_WAIT" && kill "${RESULT_SUB_PID}" 2>/dev/null ) &
+    KILL_PID=$!
+    wait "${RESULT_SUB_PID}" 2>/dev/null || true
+    # Cancel the killer if subscriber already finished
+    kill "$KILL_PID" 2>/dev/null || true
+    RESULT_SUB_PID=""
 fi
 RESULT_RAW=$(cat "$RESULT_TMP" 2>/dev/null || echo "")
 rm -f "$RESULT_TMP"
@@ -439,7 +452,7 @@ T_RESTORED=""
 while [ "$WAIT" -lt "$RESTORE_TIMEOUT" ]; do
     # Scale-to-zero means no active (non-completed) pods, not zero Job objects.
     # KEDA retains completed Job history per successfulJobsHistoryLimit.
-    ACTIVE=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+    ACTIVE=$(kubectl get pods -n "$NAMESPACE" -l job-name --no-headers 2>/dev/null \
         | grep -v -E 'Completed|Error|Evicted|Terminating' \
         | wc -l | tr -d ' ')
     if [ "$ACTIVE" -eq 0 ]; then
