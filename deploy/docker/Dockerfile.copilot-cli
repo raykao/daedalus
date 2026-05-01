@@ -10,10 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI globally.
-# Try the most likely package names; at least one should succeed.
-RUN npm install -g @github/copilot-cli || \
-    npm install -g github-copilot-cli || \
-    { echo "ERROR: Failed to install Copilot CLI - check npm registry for correct package name" >&2; exit 1; }
+# Package: @github/copilot (binary: copilot); pinned for reproducibility.
+RUN npm install -g @github/copilot@1.0.36
 
 # Non-root user for security
 RUN groupadd -r copilot && useradd -r -g copilot -m copilot
