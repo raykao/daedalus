@@ -35,7 +35,7 @@ deploy: init
 	@echo "Phase 2: installing cluster operators (KEDA)..."
 	terraform apply
 
-destroy:
+destroy: init
 	terraform destroy
 
 fmt:

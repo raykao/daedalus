@@ -39,6 +39,11 @@ variable "acr_name" {
   description = "Azure Container Registry name. If empty, auto-generated as acrdaedalus<random_suffix>"
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.acr_name == "" || can(regex("^[a-zA-Z0-9]{5,50}$", var.acr_name))
+    error_message = "acr_name must be 5-50 alphanumeric characters (no hyphens or underscores), or empty for auto-generation."
+  }
 }
 
 variable "keda_chart_version" {
