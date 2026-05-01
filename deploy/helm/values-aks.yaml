@@ -1,10 +1,10 @@
 # values-aks.yaml - AKS-specific overlay for the Daedalus Helm chart.
 #
-# This file is applied on top of values.yaml when deploying to AKS:
+# This file is applied on top of the chart's built-in values.yaml when deploying to AKS:
 #
 #   helm upgrade --install daedalus deploy/helm/daedalus/ \
-#     -f deploy/helm/values.yaml \
-#     -f deploy/helm/values-aks.yaml
+#     -f deploy/helm/values-aks.yaml \
+#     --namespace daedalus --create-namespace
 #
 # Do NOT use this file standalone - it only overrides the fields listed here.
 

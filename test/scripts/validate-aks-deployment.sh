@@ -22,6 +22,17 @@ NAMESPACE="${NAMESPACE:-daedalus}"
 NATS_STREAM="${NATS_STREAM:-AGENT_TASKS}"
 SKIP_CLEANUP="${SKIP_CLEANUP:-0}"
 
+# Initialize before trap so cleanup is safe even if Step 5 is never reached
+RESULT_SUB_PID=""
+RESULT_TMP=""
+
+# Cleanup handler - runs on EXIT, INT, TERM to release background resources
+cleanup() {
+    [ -n "${RESULT_SUB_PID:-}" ] && kill "${RESULT_SUB_PID}" 2>/dev/null || true
+    rm -f "${RESULT_TMP:-}"
+}
+trap cleanup EXIT INT TERM
+
 # ---------------------------------------------------------------------------
 # Color output helpers
 # ---------------------------------------------------------------------------
@@ -149,23 +160,28 @@ fi
 info ""
 info "=== Step 4: Verifying scale-to-zero baseline ==="
 
-# Drain any stale jobs before measuring baseline
-JOB_COUNT=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+# Drain any stale active workloads before measuring baseline.
+# Use pod-based count - KEDA retains completed Job objects indefinitely per
+# successfulJobsHistoryLimit, so raw Job count is always > 0 on a warm cluster.
+JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+    | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
 if [ "$JOB_COUNT" -gt 0 ]; then
-    warn "$JOB_COUNT job(s) still running from a previous run. Waiting up to 60s for them to clear..."
+    warn "$JOB_COUNT active pods still running from a previous run. Waiting up to 60s for them to clear..."
     WAIT=0
     while [ "$JOB_COUNT" -gt 0 ] && [ "$WAIT" -lt 60 ]; do
         sleep 5
         WAIT=$((WAIT + 5))
-        JOB_COUNT=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+        JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+            | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
     done
 fi
 
-JOB_COUNT=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+JOB_COUNT=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+    | grep -v -E 'Completed|Error|Evicted|Terminating' | wc -l | tr -d ' ')
 if [ "$JOB_COUNT" -eq 0 ]; then
-    pass "Scale-to-zero confirmed: 0 Jobs in namespace (queue is empty)"
+    pass "Scale-to-zero confirmed: 0 active pods in namespace (queue is empty)"
 else
-    warn "$JOB_COUNT job(s) still present. Proceeding anyway - results may reflect an in-flight task."
+    warn "$JOB_COUNT active pod(s) still present. Proceeding anyway - results may reflect an in-flight task."
 fi
 
 # Verify at least one ScaledJob exists
@@ -245,6 +261,11 @@ else
     warn "NATS pod not found - background result subscriber not started"
 fi
 
+# Snapshot existing Job count before publishing - KEDA may retain completed Jobs.
+# Step 6 compares against this baseline to detect truly new Jobs.
+BASELINE_JOBS=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+info "Baseline Job count before publish: $BASELINE_JOBS"
+
 TASK_ID="aks-test-$(date +%s)"
 info "Publishing task: $TASK_ID"
 
@@ -272,7 +293,7 @@ WAIT=0
 T_FIRST_JOB=""
 while [ "$WAIT" -lt "$COLD_START_TIMEOUT" ]; do
     JOB_COUNT=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$JOB_COUNT" -gt 0 ]; then
+    if [ "$JOB_COUNT" -gt "$BASELINE_JOBS" ]; then
         T_FIRST_JOB=$(now_ns)
         pass "First Job appeared after $(elapsed_sec "$T_PUBLISH" "$T_FIRST_JOB")s (cold start)"
         kubectl get jobs -n "$NAMESPACE" 2>/dev/null || true
@@ -301,7 +322,10 @@ fi
 info ""
 info "=== Step 7: Waiting for Job to complete (timeout: 120s) ==="
 
-JOB_NAME=$(kubectl get jobs -n "$NAMESPACE" --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null | head -1)
+JOB_NAME=$(kubectl get jobs -n "$NAMESPACE" \
+    --sort-by=.metadata.creationTimestamp \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+    | tail -1)
 info "Tracking job: $JOB_NAME"
 
 JOB_TIMEOUT=120
@@ -357,6 +381,11 @@ info "=== Step 8: Checking for result on agent.results ==="
 # Core NATS has no retention, so subscribing after the job completes misses the message.
 step() { info "$*"; }
 step "Step 8: Checking result on agent.results..."
+if [ "${JOB_SUCCEEDED:-0}" -eq 0 ] && [ -n "${RESULT_SUB_PID:-}" ]; then
+    info "Job did not succeed - killing result subscriber (no result will arrive)"
+    kill "$RESULT_SUB_PID" 2>/dev/null || true
+    RESULT_SUB_PID=""
+fi
 if [ -n "$RESULT_SUB_PID" ]; then
     wait "$RESULT_SUB_PID" 2>/dev/null || true
 fi
