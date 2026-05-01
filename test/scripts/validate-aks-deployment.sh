@@ -220,6 +220,16 @@ kubectl exec -n "$NAMESPACE" "$NATS_POD" -- \
         --no-allow-rollup --dupe-window=2m 2>/dev/null \
     || info "Stream '$NATS_STREAM' already exists"
 
+info "Ensuring durable consumer 'copilot' exists for KEDA..."
+kubectl exec -n "$NAMESPACE" "$NATS_POD" -- \
+    nats consumer add "$NATS_STREAM" copilot \
+        --filter="agent.tasks.copilot" \
+        --durable=copilot \
+        --ack=explicit \
+        --deliver=all \
+        --max-deliver=3 2>/dev/null \
+    || info "Consumer 'copilot' already exists (skipping)"
+
 TASK_ID="aks-test-$(date +%s)"
 info "Publishing task: $TASK_ID"
 
@@ -240,7 +250,9 @@ info ""
 info "=== Step 6: Measuring cold-start latency ==="
 info "Waiting for KEDA to trigger a Job (polling interval: up to 15s + pod start ~10-20s)..."
 
-COLD_START_TIMEOUT=90
+# First run on uncached nodes may require 150-180s (KEDA polling + image pull + ACP init).
+# Override with COLD_START_TIMEOUT=<seconds> if needed.
+COLD_START_TIMEOUT="${COLD_START_TIMEOUT:-150}"
 WAIT=0
 T_FIRST_JOB=""
 while [ "$WAIT" -lt "$COLD_START_TIMEOUT" ]; do

@@ -54,8 +54,10 @@ proxy:
 
 # ---------------------------------------------------------------------------
 # workers - AKS-specific overrides per worker entry.
-# The name field must match the corresponding entry in values.yaml so that
-# Helm merges correctly. Only override what differs from the defaults.
+# NOTE: Helm replaces arrays entirely - it does NOT merge by name. This overlay
+# intentionally defines only the copilot worker for Phase 4.4. To add additional
+# workers, copy their full entry from values.yaml and apply all overrides inline;
+# do not expect partial list entries to merge.
 # ---------------------------------------------------------------------------
 workers:
   - name: copilot

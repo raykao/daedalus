@@ -233,12 +233,15 @@ on the same node skip the pull step and start in 5-15s total.
 
 ### SIGTERM Graceful Shutdown
 
-`terminationGracePeriodSeconds: 35` (established in Phase 0.4) gives the proxy
-enough time to:
-1. Receive SIGTERM
-2. Send an ACP `tasks/cancel` request to the agent
-3. Wait for the agent to acknowledge cancellation
-4. Nack the NATS message so it is requeued
+`terminationGracePeriodSeconds: 35` (established in Phase 0.4) covers two paths:
+
+**Normal completion path:** If a task finishes before SIGTERM arrives, the proxy acks
+the NATS message and exits cleanly. No requeue occurs.
+
+**SIGTERM during active task:** The proxy sends an ACP `tasks/cancel` request to the
+agent, waits for acknowledgement (up to 30s), then nacks the NATS message so it is
+requeued for another worker. The 35s grace period covers this worst-case path (30s
+agent drain + 5s buffer).
 
 The 35s grace period is 5s longer than the ACP drain timeout (30s). Reducing it below
 30s risks losing in-flight tasks without requeue.
@@ -277,7 +280,9 @@ kubectl exec -n daedalus <nats-pod> -- \
 ```
 
 **Check 4 - Wrong stream name:**
-Confirm `NATS_STREAM` in `values-aks.yaml` matches the stream name in NATS:
+Confirm `keda.natsStream` in `deploy/helm/daedalus/values.yaml` matches the stream
+name in NATS (default: `AGENT_TASKS`). The AKS overlay (`values-aks.yaml`) does not
+override this value.
 ```bash
 kubectl exec -n daedalus <nats-pod> -- nats stream ls
 ```
