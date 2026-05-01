@@ -13,7 +13,7 @@ scale-to-zero agent workers driven by NATS JetStream messages.
 | `az` (Azure CLI) | 2.50+ | For `az aks get-credentials` |
 | `kubectl` | 1.28+ | Must point at the AKS cluster |
 | `helm` | 3.12+ | Chart deployment and status |
-| `terraform` | 1.5+ | Infrastructure provisioning |
+| `terraform` | 1.7+ | Infrastructure provisioning |
 
 Additionally:
 
@@ -91,10 +91,13 @@ kubectl get nodes
 ```bash
 az acr login --name daedalustest
 
-docker build -t daedalustest.azurecr.io/daedalus-proxy:latest ./cmd/proxy
+docker build -f deploy/docker/Dockerfile.proxy \
+  -t daedalustest.azurecr.io/daedalus-proxy:latest .
 docker push daedalustest.azurecr.io/daedalus-proxy:latest
 
-docker build -t daedalustest.azurecr.io/copilot-bridge:latest ./deploy/docker/copilot-cli
+docker pull ghcr.io/raykao/copilot-bridge:latest
+docker tag ghcr.io/raykao/copilot-bridge:latest \
+  daedalustest.azurecr.io/copilot-bridge:latest
 docker push daedalustest.azurecr.io/copilot-bridge:latest
 ```
 

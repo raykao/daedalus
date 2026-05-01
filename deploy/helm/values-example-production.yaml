@@ -1,0 +1,163 @@
+# values-example-production.yaml
+# Copy and customize this file for your deployment.
+# Full configuration reference: docs/aks-deployment.md#configuration-reference
+#
+# Usage:
+#   helm upgrade --install daedalus deploy/helm/daedalus/ \
+#     -f deploy/helm/values-example-production.yaml \
+#     --namespace daedalus --create-namespace
+#
+# NOTE: Helm replaces arrays entirely - it does NOT merge by name.
+# To add workers, copy the full entry from values.yaml and add overrides inline.
+
+# ---------------------------------------------------------------------------
+# Global
+# ---------------------------------------------------------------------------
+global:
+  logLevel: info   # debug | info | warn | error
+
+# ---------------------------------------------------------------------------
+# imagePullSecrets - reference to the ACR docker-registry secret.
+# Create before deploying:
+#
+#   kubectl create secret docker-registry acr-pull-secret \
+#     --docker-server=<YOUR_ACR_LOGIN_SERVER> \
+#     --docker-username=<SP_CLIENT_ID> \
+#     --docker-password=<SP_CLIENT_SECRET> \
+#     --namespace daedalus
+# ---------------------------------------------------------------------------
+imagePullSecrets:
+  - name: acr-pull-secret
+
+# ---------------------------------------------------------------------------
+# NATS - use the in-cluster StatefulSet (deployed as a subchart).
+# Set nats.enabled=false and provide nats.url + nats.monitoringEndpoint
+# if you are connecting to an external NATS cluster.
+# ---------------------------------------------------------------------------
+nats:
+  enabled: true   # manages a NATS StatefulSet inside the same Helm release
+
+# ---------------------------------------------------------------------------
+# proxy - shared defaults for the daedalus-proxy sidecar across all workers.
+# Individual workers can override proxy.image in their own entry below.
+# ---------------------------------------------------------------------------
+proxy:
+  image:
+    repository: <YOUR_ACR_LOGIN_SERVER>/daedalus-proxy   # e.g. myacr.azurecr.io/daedalus-proxy
+    tag: "latest"    # Pin to a specific version tag (e.g. "0.1.0") for production
+    pullPolicy: IfNotPresent   # use Always only during active development; IfNotPresent avoids redundant pulls in production
+
+# ---------------------------------------------------------------------------
+# terminationGracePeriodSeconds - must exceed the proxy drain timeout (30s)
+# plus a buffer for OS signal delivery. The value 35 was validated in Phase 0.4
+# SIGTERM testing and should not be reduced.
+# ---------------------------------------------------------------------------
+terminationGracePeriodSeconds: 35
+
+# ---------------------------------------------------------------------------
+# KEDA - ScaledJob configuration for production workloads.
+# Requires KEDA operator installed in the cluster (Terraform installs it).
+# ---------------------------------------------------------------------------
+keda:
+  enabled: true
+  pollingInterval: 10          # check NATS consumer lag every 10s (tighter than test default of 15s)
+  maxReplicaCount: 10          # maximum concurrent Job pods per worker type; tune per expected throughput
+  activeDeadlineSeconds: 900   # 15-minute task timeout per Job; increase for long-running agents
+  backoffLimit: 2              # retry count before marking a Job as failed
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  lagThreshold: "1"            # one pod per pending message (one-shot dispatch)
+  activationLagThreshold: "0"  # wake from zero as soon as any message is queued
+
+# ---------------------------------------------------------------------------
+# workers - production entries for copilot and claude.
+#
+# IMPORTANT: Helm replaces this entire array on upgrade. Any worker defined
+# in values.yaml but NOT listed here will be absent from the deployed chart.
+# Copy the full entry from values.yaml for every worker you want active.
+# ---------------------------------------------------------------------------
+workers:
+  # -------------------------------------------------------------------------
+  # copilot - GitHub Copilot CLI agent.
+  # Requires the copilot-secret Kubernetes Secret with github-token.
+  # -------------------------------------------------------------------------
+  - name: copilot
+    enabled: true
+    queueSubject: "agent.tasks.copilot"
+    acpPort: 3000
+
+    image:
+      repository: <YOUR_ACR_LOGIN_SERVER>/copilot-bridge   # e.g. myacr.azurecr.io/copilot-bridge
+      tag: "latest"        # Pin to a specific version tag (e.g. "0.1.0") for production
+      pullPolicy: IfNotPresent   # IfNotPresent is safe only with a pinned tag; use Always with "latest"
+
+    # proxy sidecar - production sizing with headroom for ACP session management
+    proxy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+
+    # agent container - higher limits than dev; Copilot CLI uses JIT and downloads at startup
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+    env:
+      - name: GITHUB_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: copilot-secret   # kubectl create secret generic copilot-secret --from-literal=github-token=<TOKEN> -n daedalus
+            key: github-token
+
+  # -------------------------------------------------------------------------
+  # claude - Anthropic Claude agent (generic ACP container runtime).
+  # Requires a container image that exposes an ACP server on port 3001.
+  # Add any required API key secrets in the env section below.
+  # -------------------------------------------------------------------------
+  - name: claude
+    # Set enabled: true after creating the claude-secret:
+    #   kubectl create secret generic claude-secret \
+    #     --from-literal=anthropic-api-key=<ANTHROPIC_API_KEY> \
+    #     --namespace daedalus
+    enabled: false
+    queueSubject: "agent.tasks.claude"
+    acpPort: 3001
+
+    image:
+      repository: <YOUR_ACR_LOGIN_SERVER>/claude-agent   # replace with your Claude agent image
+      tag: "latest"        # Pin to a specific version tag (e.g. "0.1.0") for production
+      pullPolicy: IfNotPresent   # IfNotPresent is safe only with a pinned tag; use Always with "latest"
+
+    # proxy sidecar
+    proxy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+
+    # agent container - Claude API calls are I/O-bound; modest CPU, generous memory
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+    env:
+      - name: ANTHROPIC_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: claude-secret   # kubectl create secret generic claude-secret --from-literal=anthropic-api-key=<KEY> -n daedalus
+            key: anthropic-api-key
