@@ -277,6 +277,12 @@ func (c *Client) readLoop(ctx context.Context) {
 
 // dispatch routes a parsed message to the appropriate channel
 func (c *Client) dispatch(msg *Response) {
+	// Server-to-client request: has both method and non-nil ID.
+	// Must be answered with a proper JSON-RPC response.
+	if msg.IsServerRequest() {
+		c.handleServerRequest(msg)
+		return
+	}
 	if msg.IsNotification() {
 		c.handleNotification(msg)
 		return
@@ -296,67 +302,70 @@ func (c *Client) dispatch(msg *Response) {
 	}
 }
 
-// handleNotification routes server-sent notifications
-func (c *Client) handleNotification(msg *Response) {
+// handleServerRequest responds to server-to-client JSON-RPC requests.
+// Unlike notifications, these have a non-nil ID and require a response.
+func (c *Client) handleServerRequest(msg *Response) {
 	switch msg.Method {
-	case "assistant.message_delta":
-		var params MessageDeltaParams
-		if err := json.Unmarshal(msg.Params, &params); err != nil {
-			c.logger.Warn("acp: failed to parse message_delta params", "err", err)
-			return
-		}
-		deltaKey := "delta:" + params.SessionID
-		if ch, ok := c.pending.Load(deltaKey); ok {
-			if deltaCh, ok := ch.(chan string); ok {
-				select {
-				case deltaCh <- params.Content:
-				default:
-					c.logger.Warn("acp: delta channel full, dropping delta", "sessionId", params.SessionID)
-				}
-			}
-		}
-
 	case "session/request_permission":
 		var params PermissionRequestParams
 		if err := json.Unmarshal(msg.Params, &params); err != nil {
 			c.logger.Warn("acp: failed to parse request_permission params", "err", err)
 			return
 		}
-		c.logger.Info("acp: auto-approving permission request",
-			"sessionId", params.SessionID,
-			"tool", params.Tool,
-			"reason", params.Reason)
+		c.logger.Info("acp: auto-approving permission request", "sessionId", params.SessionID)
+		reqID := *msg.ID
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			approvalParams := PermissionResponseParams{
-				SessionID: params.SessionID,
-				Approved:  true,
+			result := PermissionApprovalResult{
+				Outcome: PermissionOutcome{OptionID: "allow_once"},
 			}
-			if err := c.notify(ctx, "session/permission_response", approvalParams); err != nil {
+			if err := c.sendResponse(ctx, reqID, result); err != nil {
 				c.logger.Error("acp: failed to send permission approval", "err", err)
 			}
 		}()
+	default:
+		c.logger.Debug("acp: unhandled server request", "method", msg.Method)
+	}
+}
 
+// handleNotification routes server-sent notifications
+func (c *Client) handleNotification(msg *Response) {
+	switch msg.Method {
+	case "session/update":
+		var params SessionUpdateParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.logger.Warn("acp: failed to parse session/update params", "err", err)
+			return
+		}
+		// Only agent_message_chunk carries user-visible response text.
+		// agent_thought_chunk is internal extended thinking; skip it.
+		if params.Update.SessionUpdate == "agent_message_chunk" && params.Update.Content.Text != "" {
+			deltaKey := "delta:" + params.SessionID
+			if ch, ok := c.pending.Load(deltaKey); ok {
+				if deltaCh, ok := ch.(chan string); ok {
+					select {
+					case deltaCh <- params.Update.Content.Text:
+					default:
+						c.logger.Warn("acp: delta channel full, dropping message chunk", "sessionId", params.SessionID)
+					}
+				}
+			}
+		}
 	default:
 		c.logger.Debug("acp: unhandled notification", "method", msg.Method)
 	}
 }
 
-// notify sends a JSON-RPC notification (no ID, no response expected)
-func (c *Client) notify(ctx context.Context, method string, params interface{}) error {
-	rawParams, err := json.Marshal(params)
+// sendResponse sends a JSON-RPC response for a server-to-client request.
+func (c *Client) sendResponse(ctx context.Context, id int64, result interface{}) error {
+	data, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"result":  result,
+	})
 	if err != nil {
-		return fmt.Errorf("marshal params: %w", err)
-	}
-	req := Request{
-		JSONRPC: "2.0",
-		Method:  method,
-		Params:  rawParams,
-	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal notification: %w", err)
+		return fmt.Errorf("marshal response: %w", err)
 	}
 	data = append(data, '\n')
 
