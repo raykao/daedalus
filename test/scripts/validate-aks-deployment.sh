@@ -230,6 +230,21 @@ kubectl exec -n "$NAMESPACE" "$NATS_POD" -- \
         --max-deliver=3 2>/dev/null \
     || info "Consumer 'copilot' already exists (skipping)"
 
+# Start background subscriber to capture result BEFORE publishing.
+# Core NATS pub/sub has no message retention - a subscriber that connects
+# after the message was published never sees it.
+RESULT_TMP=$(mktemp)
+RESULT_SUB_PID=""
+if [ -n "$NATS_POD" ]; then
+    kubectl exec -n "$NAMESPACE" "$NATS_POD" -- \
+        nats sub "agent.results" --count=1 --timeout=300s --raw \
+        > "$RESULT_TMP" 2>/dev/null &
+    RESULT_SUB_PID=$!
+    info "Background result subscriber started (PID $RESULT_SUB_PID)"
+else
+    warn "NATS pod not found - background result subscriber not started"
+fi
+
 TASK_ID="aks-test-$(date +%s)"
 info "Publishing task: $TASK_ID"
 
@@ -338,17 +353,22 @@ fi
 info ""
 info "=== Step 8: Checking for result on agent.results ==="
 
-info "Subscribing to agent.results for up to 10s..."
-RESULT_RAW=$(kubectl exec -n "$NAMESPACE" "$NATS_POD" -- \
-    nats sub "agent.results" --count=1 --timeout=10s --raw 2>/dev/null || echo "")
+# Read from the background subscriber started before task publish.
+# Core NATS has no retention, so subscribing after the job completes misses the message.
+step() { info "$*"; }
+step "Step 8: Checking result on agent.results..."
+if [ -n "$RESULT_SUB_PID" ]; then
+    wait "$RESULT_SUB_PID" 2>/dev/null || true
+fi
+RESULT_RAW=$(cat "$RESULT_TMP" 2>/dev/null || echo "")
+rm -f "$RESULT_TMP"
 
 if [ -n "$RESULT_RAW" ]; then
-    pass "Received result on agent.results"
-    info "Result (truncated to 200 chars): ${RESULT_RAW:0:200}"
+    pass "Result received on agent.results"
+    info "Result payload: $(echo "$RESULT_RAW" | head -c 200)..."
 else
-    warn "No message received on agent.results within 10s"
-    warn "The task may have completed but the result subject may differ."
-    warn "Check proxy logs for the actual result subject used."
+    warn "No result received on agent.results within timeout"
+    warn "The proxy may not publish results in this deployment configuration"
 fi
 
 # ---------------------------------------------------------------------------
@@ -382,28 +402,31 @@ fi
 
 info ""
 info "=== Step 10: Verifying scale-to-zero restore ==="
-info "Waiting up to 60s for all Jobs to clear after completion..."
+info "Waiting up to 60s for active pods to clear after job completion..."
 
 RESTORE_TIMEOUT=60
 WAIT=0
 T_RESTORED=""
 while [ "$WAIT" -lt "$RESTORE_TIMEOUT" ]; do
-    JOB_COUNT=$(kubectl get jobs -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$JOB_COUNT" -eq 0 ]; then
+    # Scale-to-zero means no active (non-completed) pods, not zero Job objects.
+    # KEDA retains completed Job history per successfulJobsHistoryLimit.
+    ACTIVE=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+        | grep -v -E 'Completed|Error|Evicted|Terminating' \
+        | wc -l | tr -d ' ')
+    if [ "$ACTIVE" -eq 0 ]; then
         T_RESTORED=$(now_ns)
-        pass "Scale-to-zero restored: 0 Jobs in namespace after $(elapsed_sec "$T_JOB_DONE" "$T_RESTORED")s"
+        pass "Scale-to-zero confirmed: 0 active pods after $(elapsed_sec "$T_JOB_DONE" "$T_RESTORED")s"
         break
     fi
     sleep 5
     WAIT=$((WAIT + 5))
     if [ $((WAIT % 15)) -eq 0 ]; then
-        info "  $JOB_COUNT job(s) still present... (${WAIT}s elapsed)"
+        info "  $ACTIVE active pod(s) still present... (${WAIT}s elapsed)"
     fi
 done
 
 if [ -z "$T_RESTORED" ]; then
-    warn "Jobs did not fully clear within ${RESTORE_TIMEOUT}s."
-    warn "KEDA successfulJobsHistoryLimit retains completed Jobs - this may be expected."
+    warn "Active pods did not clear within ${RESTORE_TIMEOUT}s."
     warn "Active Jobs still running would indicate a hung task, not a scale-to-zero failure."
     kubectl get jobs -n "$NAMESPACE" 2>/dev/null || true
 fi

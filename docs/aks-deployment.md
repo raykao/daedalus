@@ -131,7 +131,6 @@ This runs:
 
 ```bash
 helm upgrade --install daedalus deploy/helm/daedalus/ \
-  -f deploy/helm/values.yaml \
   -f deploy/helm/values-aks.yaml \
   --namespace daedalus \
   --create-namespace \

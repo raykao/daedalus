@@ -45,7 +45,8 @@ test-smoke:
 # ---------------------------------------------------------------------------
 
 # helm-aks-deploy - install or upgrade the Daedalus release on AKS.
-# Applies both the base values.yaml and the AKS overlay values-aks.yaml.
+# Applies the AKS overlay values-aks.yaml on top of the chart's own values.yaml
+# (Helm auto-loads deploy/helm/daedalus/values.yaml from the chart directory).
 # Creates the namespace if it does not already exist.
 # Blocks until all resources are ready or the 5-minute timeout expires.
 #
@@ -54,7 +55,6 @@ test-smoke:
 #   make helm-aks-deploy RELEASE_NAME=daedalus NAMESPACE=daedalus
 helm-aks-deploy: check-aks-context
 	helm upgrade --install $(RELEASE_NAME) deploy/helm/daedalus/ \
-	    -f deploy/helm/values.yaml \
 	    -f deploy/helm/values-aks.yaml \
 	    --namespace $(NAMESPACE) \
 	    --create-namespace \
@@ -99,7 +99,8 @@ helm-aks-logs: check-aks-context
 	@POD=$$(kubectl get pods -n $(NAMESPACE) \
 	    -l "app.kubernetes.io/component=$(WORKER)" \
 	    --sort-by=.metadata.creationTimestamp \
-	    -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null); \
+	    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+	    | tail -1); \
 	if [ -z "$$POD" ]; then \
 	    echo "No pods found for worker '$(WORKER)' in namespace '$(NAMESPACE)'"; \
 	    echo "If the queue is empty, KEDA will not create any Jobs (scale-to-zero is active)."; \
