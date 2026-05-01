@@ -25,6 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Makefile targets for integration and smoke tests (Phase 4.2)
 - Smoke test documentation with setup, troubleshooting, and debugging guide (Phase 4.2)
 - `deploy/terraform/` - Terraform module for test AKS cluster (Phase 4.3): provisions resource group, AKS cluster, ACR, and KEDA operator
+- `deploy/helm/values-aks.yaml` - AKS-specific Helm values overlay with KEDA enabled and ACR image references (Phase 4.4)
+- Makefile targets for AKS Helm deployment: `helm-aks-deploy`, `helm-aks-teardown`, `helm-aks-status`, `helm-aks-logs` (Phase 4.4)
+- `test/scripts/validate-aks-deployment.sh` - validation script for KEDA ScaledJob triggers, scale-to-zero, cold start latency, and SIGTERM graceful shutdown on AKS (Phase 4.4)
+- `docs/aks-deployment.md` - AKS deployment guide with configuration reference and troubleshooting (Phase 4.4)
 
 ## Phase 3 - Pluggable Runtime and Operator
 
