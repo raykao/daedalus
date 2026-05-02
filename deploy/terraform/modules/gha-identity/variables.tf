@@ -38,6 +38,17 @@ variable "subjects" {
     condition     = length(var.subjects) > 0
     error_message = "subjects must contain at least one OIDC subject string."
   }
+
+  # Defence-in-depth: even if a future caller forgets the equivalent
+  # validation in their root config, this module must refuse subjects from
+  # other repos. Cross-repo OIDC trust is an explicit decision, not a typo.
+  validation {
+    condition = alltrue([
+      for s in var.subjects :
+      can(regex("^repo:${var.github_owner}/${var.github_repo}:", s))
+    ])
+    error_message = "Every subject must start with \"repo:<github_owner>/<github_repo>:\". Cross-repo OIDC trust must be an explicit, separate decision (instantiate the module again with the other repo's github_owner/github_repo)."
+  }
 }
 
 variable "tags" {

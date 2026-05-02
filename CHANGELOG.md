@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Terraform: `github_oidc_subjects` (root) and `subjects` (gha-identity module) now require every entry to start with `repo:<github_owner>/<github_repo>:`, refusing cross-repo OIDC trust at validation time instead of silently federating a UAMI with AcrPush to another repo's workflows. Bumped root `required_version` to `>= 1.9.0` so cross-variable references are available in `validation` blocks.
+- Terraform: `gha-identity` module now suffixes each federated credential resource name with a 6-char hash of the full subject (e.g. `gha-fic-main-3f9a2b`) so subjects whose human-readable parts collapse to the same short name (e.g. `refs/heads/feat-foo` vs `refs/heads/feat/foo`) no longer collide on Azure mid-apply.
 - Terraform `acr` module accepts `additional_push_principal_ids` for granting AcrPush to non-AKS principals (used by the GHA identity).
 - Terraform README documents the post-apply GitHub repo variable wiring (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME`, `ACR_LOGIN_SERVER`) and how to verify federated credential subjects against the workflow's triggers.
 - `Dockerfile.proxy` now cross-compiles via `--platform=$BUILDPLATFORM` + `GOARCH=$TARGETARCH` (replacing the hard-coded `GOARCH=amd64`) so multi-arch buildx runs produce correct linux/arm64 binaries.

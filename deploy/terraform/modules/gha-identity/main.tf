@@ -13,15 +13,21 @@
 locals {
   # Build a deterministic short name per subject so each
   # azurerm_federated_identity_credential gets a stable, human-meaningful
-  # resource name. Only the discriminating part of the subject is used.
+  # resource name. Each name is suffixed with a 6-char sha1 of the full
+  # subject so it is provably collision-free: two subjects whose
+  # human-readable parts collapse to the same string after `/`->`-`
+  # substitution (e.g. `refs/heads/feat-foo` and `refs/heads/feat/foo` both
+  # reduce to `feat-foo`) would otherwise hit Azure with a duplicate FIC
+  # name mid-apply. Subjects are unique by construction (`for_each` keys),
+  # so the hash suffix is enough to disambiguate.
   #
   # Examples:
-  #   repo:raykao/daedalus:ref:refs/heads/main      -> "main"
-  #   repo:raykao/daedalus:pull_request             -> "pr"
-  #   repo:raykao/daedalus:environment:test         -> "env-test"
+  #   repo:raykao/daedalus:ref:refs/heads/main      -> "main-3f9a2b"
+  #   repo:raykao/daedalus:pull_request             -> "pr-7c1e44"
+  #   repo:raykao/daedalus:environment:test         -> "env-test-a1b2c3"
   fic_short_names = {
     for s in var.subjects :
-    s => (
+    s => format("%s-%s", (
       can(regex(":environment:([A-Za-z0-9_-]+)$", s)) ?
       "env-${regex(":environment:([A-Za-z0-9_-]+)$", s)[0]}" :
       can(regex(":pull_request$", s)) ?
@@ -31,7 +37,7 @@ locals {
       can(regex(":ref:refs/tags/([A-Za-z0-9_./-]+)$", s)) ?
       "tag-${replace(regex(":ref:refs/tags/([A-Za-z0-9_./-]+)$", s)[0], "/", "-")}" :
       substr(sha1(s), 0, 8)
-    )
+    ), substr(sha1(s), 0, 6))
   }
 }
 

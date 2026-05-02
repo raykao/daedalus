@@ -120,6 +120,19 @@ variable "github_oidc_subjects" {
   description = "OIDC subjects to register on the GHA federated credential. If empty, defaults to main-branch pushes, pull_request runs, and an environment:test subject for the configured github_owner/github_repo. Override only if you need to add environments, tags, or other branches; the override replaces (does not append to) the default list."
   type        = list(string)
   default     = []
+
+  # Bound the subjects to the configured repo. Without this, an operator
+  # could federate a UAMI with AcrPush to `repo:other-org/other-repo:...`,
+  # silently granting cross-repo OIDC trust. Cross-repo trust must be an
+  # explicit, separate decision (a new module instance with its own
+  # github_owner/github_repo), not a tfvars typo.
+  validation {
+    condition = alltrue([
+      for s in var.github_oidc_subjects :
+      can(regex("^repo:${var.github_owner}/${var.github_repo}:", s))
+    ])
+    error_message = "Every github_oidc_subjects entry must start with \"repo:<github_owner>/<github_repo>:\". Cross-repo OIDC trust must be an explicit, separate decision."
+  }
 }
 
 variable "tags" {
