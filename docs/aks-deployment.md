@@ -4,6 +4,22 @@ This guide covers deploying Daedalus to the test AKS cluster provisioned by the
 Terraform module in `deploy/terraform/`. Daedalus uses KEDA ScaledJobs for
 scale-to-zero agent workers driven by NATS JetStream messages.
 
+> **Quick path (recommended):** Phase 5.3 introduced an automated, idempotent
+> deploy. After cloning the repo, copying `deploy/terraform/envs/test.tfvars.example`
+> to `test.tfvars` and filling in `subscription_id`, and exporting `GITHUB_TOKEN`,
+> a single command stands up everything below:
+>
+> ```sh
+> make deploy-aks-test     # provision + helm install Daedalus (~25 min cold)
+> make aks-status          # health snapshot
+> make destroy-aks-test    # full teardown
+> ```
+>
+> The wrapper scripts live at `deploy/scripts/deploy-aks.sh` /
+> `deploy/scripts/destroy-aks.sh`. The remainder of this guide documents the
+> manual steps the script automates - keep it for reference until Phase 5.6
+> rewrites this guide holistically.
+
 ---
 
 ## Prerequisites

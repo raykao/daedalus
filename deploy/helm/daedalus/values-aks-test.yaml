@@ -1,0 +1,96 @@
+# values-aks-test.yaml - Test-environment overlay for the Daedalus Helm chart.
+#
+# !! READ THIS BEFORE EDITING !!
+#
+# This file is rendered by `make deploy-aks-test` (deploy/scripts/deploy-aks.sh).
+# Image repositories are intentionally placeholders - the wrapper script
+# overrides them via `--set` because each engineer's Terraform deployment
+# produces a different ACR hostname (and the chart cannot template values).
+# Do not commit a hardcoded ACR hostname here; use the existing
+# deploy/helm/values-aks.yaml if you want a pinned-ACR overlay.
+#
+# Standalone helm install with this file (without --set image repositories)
+# WILL FAIL pulling images from "REPLACE_VIA_HELM_SET/...". This is by design:
+# it surfaces missing overrides loudly instead of silently pulling the wrong
+# image.
+#
+# Functionally equivalent to deploy/helm/values-aks.yaml: KEDA enabled, NATS
+# enabled, copilot worker with AKS-sized resources and GITHUB_TOKEN injection.
+# Differs only in:
+#   - Image repositories are placeholders overridden by the deploy script.
+#   - imagePullSecrets is empty: kubelet identity AcrPull (provisioned by
+#     Terraform) is the preferred image-pull path. Add an entry here only if
+#     you have to fall back to a docker-registry secret.
+
+# ---------------------------------------------------------------------------
+# KEDA - enable ScaledJob mode (overrides chart default of false).
+# ---------------------------------------------------------------------------
+keda:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# NATS - in-cluster StatefulSet via the bitnami subchart.
+# ---------------------------------------------------------------------------
+nats:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# imagePullSecrets - empty by default. Terraform's AKS module assigns the
+# AcrPull role to the AKS kubelet managed identity, so the kubelet pulls
+# images directly without a docker-registry secret. If your cluster does
+# NOT have that role (e.g. kubelet identity wasn't attached to the ACR),
+# add a docker-registry secret name here.
+# ---------------------------------------------------------------------------
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# proxy.image - placeholder. The deploy script overrides:
+#   --set proxy.image.repository=<acr_login_server>/daedalus-proxy
+#   --set proxy.image.tag=<IMAGE_TAG>
+# ---------------------------------------------------------------------------
+proxy:
+  image:
+    repository: REPLACE_VIA_HELM_SET/daedalus-proxy
+    tag: REPLACE_VIA_HELM_SET
+    pullPolicy: Always
+
+# ---------------------------------------------------------------------------
+# workers - copilot worker tuned for AKS test cluster.
+# Note: Helm replaces arrays entirely; this overlay defines the full worker
+# entry. Image repository/tag are placeholders overridden by the deploy
+# script (`--set workers[0].image.repository=...`).
+# ---------------------------------------------------------------------------
+workers:
+  - name: copilot
+    enabled: true
+    queueSubject: "agent.tasks.copilot"
+    acpPort: 3000
+
+    image:
+      repository: REPLACE_VIA_HELM_SET/copilot-bridge
+      tag: REPLACE_VIA_HELM_SET
+      pullPolicy: Always
+
+    proxy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+    env:
+      - name: GITHUB_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: copilot-secret
+            key: github-token
