@@ -1,4 +1,10 @@
-FROM golang:1.25-alpine AS builder
+# Multi-stage build for the proxy.
+# Stage 1: build the binary. Pinned to BUILDPLATFORM and using TARGETARCH so
+# `docker buildx build --platform linux/amd64,linux/arm64` cross-compiles
+# instead of running the Go toolchain under QEMU emulation per platform.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETARCH
 
 WORKDIR /build
 
@@ -8,7 +14,7 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -ldflags="-w -s" -trimpath \
     -o /app/proxy ./cmd/proxy
 
