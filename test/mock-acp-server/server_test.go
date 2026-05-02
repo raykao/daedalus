@@ -92,7 +92,42 @@ sid := nr["sessionId"].(string)
 
 deltas, _, result := tc.sendPrompt(t, sid, "create hello.txt")
 if len(deltas) < 2 {
-t.Errorf("expected ≥2 message_delta notifications, got %d", len(deltas))
+t.Errorf("expected ≥2 session/update notifications, got %d", len(deltas))
+}
+// Validate wire-format shape, not just count. The mock must emit
+// session/update notifications with sessionUpdate=agent_message_chunk
+// and a non-empty text content block. If the producer regresses to the
+// old assistant.message_delta envelope or to empty payloads, this test
+// must fail.
+for i, n := range deltas {
+if got := n["method"]; got != "session/update" {
+t.Errorf("delta[%d]: method=%v, want session/update", i, got)
+continue
+}
+params, ok := n["params"].(map[string]any)
+if !ok {
+t.Errorf("delta[%d]: missing params, got %v", i, n["params"])
+continue
+}
+update, ok := params["update"].(map[string]any)
+if !ok {
+t.Errorf("delta[%d]: missing 'update' field, got params=%v", i, params)
+continue
+}
+if update["sessionUpdate"] != "agent_message_chunk" {
+t.Errorf("delta[%d]: sessionUpdate=%v, want agent_message_chunk", i, update["sessionUpdate"])
+}
+content, ok := update["content"].(map[string]any)
+if !ok {
+t.Errorf("delta[%d]: content=%v, want {type:text,text:...}", i, update["content"])
+continue
+}
+if content["type"] != "text" {
+t.Errorf("delta[%d]: content.type=%v, want text", i, content["type"])
+}
+if text, _ := content["text"].(string); text == "" {
+t.Errorf("delta[%d]: empty content.text", i)
+}
 }
 if result["content"] == nil {
 t.Error("expected content in prompt result")
@@ -554,13 +589,21 @@ _ = tc.c.WriteMessage(map[string]any{
 })
 continue
 }
-// Notification (method but no id).
+// Notification (method but no id). Capture both method and params so
+// callers can validate the wire format (not just count).
 if !hasID && hasMethod {
+var method string
+if m, ok := raw["method"]; ok {
+_ = json.Unmarshal(m, &method)
+}
 var params map[string]any
 if p, ok := raw["params"]; ok {
 _ = json.Unmarshal(p, &params)
 }
-notifications = append(notifications, params)
+notifications = append(notifications, map[string]any{
+"method": method,
+"params": params,
+})
 continue
 }
 // Response to our prompt (id, no method).
