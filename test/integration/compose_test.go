@@ -127,26 +127,31 @@ func ensureStreams() error {
 func waitForNATS(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		nc, err := nats.Connect(natsURL, nats.Timeout(2*time.Second))
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		js, err := jetstream.New(nc)
-		nc.Close()
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err = js.AccountInfo(ctx)
-		cancel()
-		if err == nil {
+		if err := probeNATS(); err == nil {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("NATS not ready after %v", timeout)
+}
+
+// probeNATS performs a single JetStream readiness check. It keeps the NATS
+// connection open through AccountInfo and closes it via defer so that each
+// loop iteration cleans up regardless of outcome.
+func probeNATS() error {
+	nc, err := nats.Connect(natsURL, nats.Timeout(2*time.Second))
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = js.AccountInfo(ctx)
+	return err
 }
 
 // TestEndToEnd_CompletedTask publishes an A2A task to NATS, waits for the proxy
@@ -168,22 +173,52 @@ func TestEndToEnd_CompletedTask(t *testing.T) {
 		t.Fatalf("JetStream context: %v", err)
 	}
 
-	// Set up ordered consumers BEFORE publishing so no messages are missed.
-	resultCons, err := js.OrderedConsumer(ctx, resultStream, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{resultSubject},
-		DeliverPolicy:  jetstream.DeliverNewPolicy,
-	})
+	// Set up consumers BEFORE publishing so no messages are missed.
+	//
+	// We deliberately avoid jetstream.OrderedConsumer here: it is lazy and
+	// does not create the server-side consumer until the first Next()/
+	// Messages() call. With DeliverNewPolicy, the start point is "stream
+	// tip at bind time", which created a race where a fast `working` status
+	// update (Phase 4 mock-acp end-to-end is ~700ms) could be published
+	// before the goroutine driving statusCons.Next() ran and bound the
+	// consumer, so the message was filtered out and the test flaked
+	// (~33% pass rate).
+	//
+	// Using CreateOrUpdateConsumer with DeliverByStartTimePolicy and a
+	// timestamp captured BEFORE js.Publish() guarantees the server-side
+	// consumer exists, is bound, and has an explicit start point that
+	// predates the task publish - independent of when Next() is first
+	// called.
+	startTime := time.Now()
+	resultConsCfg := jetstream.ConsumerConfig{
+		FilterSubject:     resultSubject,
+		DeliverPolicy:     jetstream.DeliverByStartTimePolicy,
+		OptStartTime:      &startTime,
+		AckPolicy:         jetstream.AckExplicitPolicy,
+		InactiveThreshold: 5 * time.Minute,
+	}
+	resultCons, err := js.CreateOrUpdateConsumer(ctx, resultStream, resultConsCfg)
 	if err != nil {
 		t.Fatalf("create result consumer: %v", err)
 	}
+	defer func() {
+		_ = js.DeleteConsumer(context.Background(), resultStream, resultCons.CachedInfo().Name)
+	}()
 
-	statusCons, err := js.OrderedConsumer(ctx, statusStream, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{statusSubject},
-		DeliverPolicy:  jetstream.DeliverNewPolicy,
-	})
+	statusConsCfg := jetstream.ConsumerConfig{
+		FilterSubject:     statusSubject,
+		DeliverPolicy:     jetstream.DeliverByStartTimePolicy,
+		OptStartTime:      &startTime,
+		AckPolicy:         jetstream.AckExplicitPolicy,
+		InactiveThreshold: 5 * time.Minute,
+	}
+	statusCons, err := js.CreateOrUpdateConsumer(ctx, statusStream, statusConsCfg)
 	if err != nil {
 		t.Fatalf("create status consumer: %v", err)
 	}
+	defer func() {
+		_ = js.DeleteConsumer(context.Background(), statusStream, statusCons.CachedInfo().Name)
+	}()
 
 	// Publish the A2A task.
 	req := a2a.SendMessageRequest{

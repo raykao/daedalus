@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -44,7 +45,7 @@ func (h *Handler) Dispatch(ctx context.Context, c *conn, req *Request) {
 // ── initialize ────────────────────────────────────────────────────────────────
 
 type InitializeParams struct {
-	ProtocolVersion string         `json:"protocolVersion"`
+	ProtocolVersion int            `json:"protocolVersion"`
 	Capabilities    map[string]any `json:"capabilities"`
 	ClientInfo      struct {
 		Name    string `json:"name"`
@@ -53,9 +54,9 @@ type InitializeParams struct {
 }
 
 type InitializeResult struct {
-	ProtocolVersion string                `json:"protocolVersion"`
-	Capabilities    ServerCapabilities    `json:"capabilities"`
-	ServerInfo      ComponentInfo         `json:"serverInfo"`
+	ProtocolVersion int                `json:"protocolVersion"`
+	Capabilities    ServerCapabilities `json:"capabilities"`
+	ServerInfo      ComponentInfo      `json:"serverInfo"`
 }
 
 type ServerCapabilities struct {
@@ -78,7 +79,7 @@ func (h *Handler) handleInitialize(_ context.Context, c *conn, req *Request) {
 	slog.Info("initialize", "client", params.ClientInfo.Name, "version", params.ClientInfo.Version)
 
 	result := InitializeResult{
-		ProtocolVersion: "2025-01-01",
+		ProtocolVersion: 1,
 		Capabilities: ServerCapabilities{
 			LoadSession:       h.srv.cfg.LoadSessionSupport,
 			Streaming:         true,
@@ -92,7 +93,7 @@ func (h *Handler) handleInitialize(_ context.Context, c *conn, req *Request) {
 // ── session/new ───────────────────────────────────────────────────────────────
 
 type SessionNewParams struct {
-	WorkDir    string      `json:"workDir"`
+	Cwd        string      `json:"cwd"`
 	MCPServers []MCPServer `json:"mcpServers,omitempty"`
 }
 
@@ -111,7 +112,7 @@ func (h *Handler) handleSessionNew(_ context.Context, c *conn, req *Request) {
 
 	sess := &Session{
 		ID:      "sess-" + newUUID(),
-		WorkDir: params.WorkDir,
+		WorkDir: params.Cwd,
 	}
 	if !h.srv.addSession(sess) {
 		_ = c.WriteResponse(req.ID, nil, &RPCError{
@@ -120,27 +121,85 @@ func (h *Handler) handleSessionNew(_ context.Context, c *conn, req *Request) {
 		})
 		return
 	}
-	slog.Info("session/new", "sessionId", sess.ID, "workDir", params.WorkDir, "mcpServers", len(params.MCPServers))
+	slog.Info("session/new", "sessionId", sess.ID, "cwd", params.Cwd, "mcpServers", len(params.MCPServers))
 	_ = c.WriteResponse(req.ID, map[string]string{"sessionId": sess.ID}, nil)
 }
 
 // ── session/prompt ────────────────────────────────────────────────────────────
 
+// ContentPart is a single content block in a session/prompt request.
+type ContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 type SessionPromptParams struct {
-	SessionID string `json:"sessionId"`
-	Prompt    string `json:"prompt"`
+	SessionID string        `json:"sessionId"`
+	Prompt    []ContentPart `json:"prompt"`
 }
 
-type MessageDeltaParams struct {
-	SessionID string `json:"sessionId"`
-	Content   string `json:"content"`
+// SessionUpdateNotificationParams is the params field of a session/update
+// notification (the v1 streaming envelope).
+type SessionUpdateNotificationParams struct {
+	SessionID string            `json:"sessionId"`
+	Update    SessionUpdateBody `json:"update"`
 }
 
+// SessionUpdateBody describes one streamed update in v1 wire format.
+type SessionUpdateBody struct {
+	SessionUpdate string              `json:"sessionUpdate"`
+	Content       SessionUpdateContent `json:"content,omitempty"`
+}
+
+// SessionUpdateContent is the text content of a streamed update.
+type SessionUpdateContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// PermissionToolCall is the toolCall block of a session/request_permission.
+type PermissionToolCall struct {
+	Tool    string `json:"tool"`
+	Command string `json:"command"`
+	Reason  string `json:"reason"`
+}
+
+// PermissionOption describes one option presented to the client.
+type PermissionOption struct {
+	OptionID string `json:"optionId"`
+	Label    string `json:"label"`
+}
+
+// PermissionRequestParams is the params of session/request_permission.
 type PermissionRequestParams struct {
-	SessionID string `json:"sessionId"`
-	Tool      string `json:"tool"`
-	Command   string `json:"command"`
-	Reason    string `json:"reason"`
+	SessionID string             `json:"sessionId"`
+	ToolCall  PermissionToolCall `json:"toolCall"`
+	Options   []PermissionOption `json:"options"`
+}
+
+// permissionApprovalResult is the typed shape of a session/request_permission
+// response's `result` field.
+type permissionApprovalResult struct {
+	Outcome struct {
+		OptionID string `json:"optionId"`
+	} `json:"outcome"`
+}
+
+// unmarshalResult decodes a Response.Result (which may be json.RawMessage if
+// it round-tripped via the read loop, or a Go value if set by the server)
+// into the destination struct.
+func unmarshalResult(result any, dst any) error {
+	if result == nil {
+		return fmt.Errorf("nil result")
+	}
+	if raw, ok := result.(json.RawMessage); ok {
+		return json.Unmarshal(raw, dst)
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, dst)
 }
 
 type Artifact struct {
@@ -172,9 +231,18 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, c *conn, req *Request
 		return
 	}
 
-	slog.Info("session/prompt", "sessionId", params.SessionID)
+	// Concatenate text parts for history storage.
+	var promptTextBuilder strings.Builder
+	for _, p := range params.Prompt {
+		if p.Type == "text" {
+			promptTextBuilder.WriteString(p.Text)
+		}
+	}
+	promptText := promptTextBuilder.String()
 
-	// Stream assistant.message_delta chunks.
+	slog.Info("session/prompt", "sessionId", params.SessionID, "promptLen", len(promptText))
+
+	// Stream agent_message_chunk updates via session/update notifications.
 	chunks := []string{"I'll create ", "the file for you."}
 	for _, chunk := range chunks {
 		select {
@@ -182,20 +250,58 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, c *conn, req *Request
 			return
 		case <-time.After(h.srv.cfg.StreamingDelay):
 		}
-		_ = c.WriteNotification("assistant.message_delta", MessageDeltaParams{
+		_ = c.WriteNotification("session/update", SessionUpdateNotificationParams{
 			SessionID: params.SessionID,
-			Content:   chunk,
+			Update: SessionUpdateBody{
+				SessionUpdate: "agent_message_chunk",
+				Content:       SessionUpdateContent{Type: "text", Text: chunk},
+			},
 		})
 	}
 
-	// Optionally emit a permission request.
+	// Optionally issue a permission request (server→client request) and wait
+	// for the client's response before completing the prompt.
 	if h.srv.cfg.SendPermissions {
-		_ = c.WriteNotification("session/request_permission", PermissionRequestParams{
+		permParams := PermissionRequestParams{
 			SessionID: params.SessionID,
-			Tool:      "bash",
-			Command:   "echo 'hello world' > hello.txt",
-			Reason:    "Creating hello.txt",
-		})
+			ToolCall: PermissionToolCall{
+				Tool:    "bash",
+				Command: "echo 'hello world' > hello.txt",
+				Reason:  "Creating hello.txt",
+			},
+			Options: []PermissionOption{
+				{OptionID: "allow_once", Label: "Allow once"},
+				{OptionID: "deny", Label: "Deny"},
+			},
+		}
+		resp, err := c.WriteRequestAwaitResponse(ctx, "session/request_permission", permParams, 30*time.Second)
+		if err != nil {
+			slog.Warn("permission request failed", "err", err)
+			_ = c.WriteResponse(req.ID, nil, &RPCError{Code: ErrInternal, Message: "permission request: " + err.Error()})
+			return
+		}
+		if resp.Error != nil {
+			slog.Warn("permission request returned error", "code", resp.Error.Code, "msg", resp.Error.Message)
+			_ = c.WriteResponse(req.ID, nil, resp.Error)
+			return
+		}
+
+		// Parse the outcome and validate optionId.
+		var approval permissionApprovalResult
+		if err := unmarshalResult(resp.Result, &approval); err != nil || approval.Outcome.OptionID == "" {
+			slog.Warn("invalid permission response", "err", err)
+			_ = c.WriteResponse(req.ID, nil, &RPCError{Code: ErrInternal, Message: "invalid permission response"})
+			return
+		}
+		if approval.Outcome.OptionID != "allow_once" {
+			slog.Info("permission denied", "sessionId", params.SessionID, "optionId", approval.Outcome.OptionID)
+			_ = c.WriteResponse(req.ID, nil, &RPCError{
+				Code:    ErrInternal,
+				Message: "permission denied: " + approval.Outcome.OptionID,
+			})
+			return
+		}
+		slog.Info("permission granted", "sessionId", params.SessionID, "optionId", approval.Outcome.OptionID)
 	}
 
 	// Final response after optional delay.
@@ -206,7 +312,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, c *conn, req *Request
 	}
 
 	finalContent := "I've created hello.txt with the contents 'hello world'."
-	sess.AppendHistory(params.Prompt, finalContent)
+	sess.AppendHistory(promptText, finalContent)
 
 	result := PromptResult{
 		SessionID: params.SessionID,
