@@ -22,9 +22,11 @@ locals {
   aks_name      = "aks-${var.name_prefix}-${var.env_name}"
   identity_name = "id-${var.name_prefix}-${var.env_name}"
 
-  # ACR names must be 5-50 alphanumeric, no hyphens. Build deterministically
-  # from prefix + env so re-applies are stable.
-  acr_name = substr(replace("acr${var.name_prefix}${var.env_name}", "-", ""), 0, 50)
+  # ACR names must be 5-50 alphanumeric, no hyphens, and globally unique. The
+  # sha1 suffix scopes the name to (subscription, prefix, env) so two users
+  # with the same defaults don't collide on a global namespace.
+  acr_suffix = substr(sha1("${var.subscription_id}-${var.name_prefix}-${var.env_name}"), 0, 6)
+  acr_name   = substr(replace("acr${var.name_prefix}${var.env_name}${local.acr_suffix}", "-", ""), 0, 50)
 
   # Key Vault names must be 3-24 alphanumeric + hyphens, globally unique.
   # Suffix with a deterministic hash of (subscription, prefix, env) so two
