@@ -532,8 +532,46 @@ return tc.sendPromptWithPermission(t, sessionID, prompt, "allow_once")
 }
 
 // sendPromptWithPermission is like sendPrompt but lets the test choose which
-// optionId to return for permission requests (e.g. "deny").
+// optionId to return for permission requests (e.g. "deny"). Fails the test if
+// the prompt response is an RPC error.
 func (tc *testClient) sendPromptWithPermission(t *testing.T, sessionID, prompt, optionID string) ([]map[string]any, []map[string]any, map[string]any) {
+t.Helper()
+out := tc.runPromptLoop(t, sessionID, prompt, optionID)
+if out.rpcErr != nil {
+t.Fatalf("prompt error: %s", out.rpcErr.Message)
+}
+return out.notifications, out.serverReqs, out.result
+}
+
+// sendPromptExpectError sends a prompt, auto-responds to permission requests
+// with the given optionId, and expects the final response to be an RPC error.
+// Fails the test if the prompt unexpectedly succeeds.
+func (tc *testClient) sendPromptExpectError(t *testing.T, sessionID, prompt, optionID string) *RPCError {
+t.Helper()
+out := tc.runPromptLoop(t, sessionID, prompt, optionID)
+if out.rpcErr == nil {
+t.Fatal("expected error response, got success")
+}
+return out.rpcErr
+}
+
+// promptLoopOutcome captures everything the message-routing loop observes
+// during a single session/prompt round-trip. Either rpcErr or result is set
+// on a clean return; both being unset implies the connection closed first
+// (in which case runPromptLoop has already called t.Fatal).
+type promptLoopOutcome struct {
+notifications []map[string]any
+serverReqs    []map[string]any
+result        map[string]any
+rpcErr        *RPCError
+}
+
+// runPromptLoop sends a session/prompt request, then auto-responds to any
+// session/request_permission server-requests with the given optionID, and
+// returns when the prompt response (success or error) arrives. Pure
+// transport: it does NOT decide whether errors are fatal — callers wrap it
+// with their own success/failure expectations.
+func (tc *testClient) runPromptLoop(t *testing.T, sessionID, prompt, optionID string) promptLoopOutcome {
 t.Helper()
 id := tc.nextID()
 if err := tc.c.WriteMessage(Request{
@@ -548,8 +586,7 @@ Params: mustMarshal(t, map[string]any{
 t.Fatalf("write prompt: %v", err)
 }
 
-var notifications []map[string]any
-var serverRequests []map[string]any
+var out promptLoopOutcome
 for tc.scanner.Scan() {
 var raw map[string]json.RawMessage
 if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
@@ -557,6 +594,7 @@ t.Fatalf("parse message: %v", err)
 }
 _, hasID := raw["id"]
 _, hasMethod := raw["method"]
+
 // Server-to-client request (has both id and method): respond and continue.
 if hasID && hasMethod {
 var inReq Request
@@ -568,7 +606,7 @@ var params map[string]any
 if err := json.Unmarshal(inReq.Params, &params); err != nil {
 t.Fatalf("parse server-request params: %v", err)
 }
-serverRequests = append(serverRequests, map[string]any{
+out.serverReqs = append(out.serverReqs, map[string]any{
 "method": inReq.Method,
 "params": params,
 })
@@ -589,6 +627,7 @@ _ = tc.c.WriteMessage(map[string]any{
 })
 continue
 }
+
 // Notification (method but no id). Capture both method and params so
 // callers can validate the wire format (not just count).
 if !hasID && hasMethod {
@@ -600,84 +639,27 @@ var params map[string]any
 if p, ok := raw["params"]; ok {
 _ = json.Unmarshal(p, &params)
 }
-notifications = append(notifications, map[string]any{
+out.notifications = append(out.notifications, map[string]any{
 "method": method,
 "params": params,
 })
 continue
 }
+
 // Response to our prompt (id, no method).
 if errRaw, ok := raw["error"]; ok && string(errRaw) != "null" {
 var rpcErr RPCError
 _ = json.Unmarshal(errRaw, &rpcErr)
-t.Fatalf("prompt error: %s", rpcErr.Message)
+out.rpcErr = &rpcErr
+return out
 }
 var result map[string]any
 _ = json.Unmarshal(raw["result"], &result)
-return notifications, serverRequests, result
+out.result = result
+return out
 }
 t.Fatal("connection closed before prompt response")
-return nil, nil, nil
-}
-
-// sendPromptExpectError sends a prompt, auto-responds to permission requests
-// with the given optionId, and expects the final response to be an RPC error.
-func (tc *testClient) sendPromptExpectError(t *testing.T, sessionID, prompt, optionID string) *RPCError {
-t.Helper()
-id := tc.nextID()
-if err := tc.c.WriteMessage(Request{
-JSONRPC: "2.0",
-ID:      &id,
-Method:  "session/prompt",
-Params: mustMarshal(t, map[string]any{
-"sessionId": sessionID,
-"prompt":    []map[string]any{{"type": "text", "text": prompt}},
-}),
-}); err != nil {
-t.Fatalf("write prompt: %v", err)
-}
-for tc.scanner.Scan() {
-var raw map[string]json.RawMessage
-if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
-t.Fatalf("parse message: %v", err)
-}
-_, hasID := raw["id"]
-_, hasMethod := raw["method"]
-if hasID && hasMethod {
-var inReq Request
-if err := json.Unmarshal(tc.scanner.Bytes(), &inReq); err != nil {
-t.Fatalf("parse server request: %v", err)
-}
-if inReq.Method == "session/request_permission" {
-_ = tc.c.WriteMessage(map[string]any{
-"jsonrpc": "2.0",
-"id":      inReq.ID,
-"result": map[string]any{
-"outcome": map[string]any{"optionId": optionID},
-},
-})
-continue
-}
-_ = tc.c.WriteMessage(map[string]any{
-"jsonrpc": "2.0",
-"id":      inReq.ID,
-"error":   map[string]any{"code": -32601, "message": "method not found"},
-})
-continue
-}
-if !hasID && hasMethod {
-continue // notification
-}
-if errRaw, ok := raw["error"]; ok && string(errRaw) != "null" {
-var rpcErr RPCError
-_ = json.Unmarshal(errRaw, &rpcErr)
-return &rpcErr
-}
-t.Fatal("expected error response, got success")
-return nil
-}
-t.Fatal("connection closed before prompt response")
-return nil
+return out
 }
 
 // readResponseSkipNotifications reads lines until a message with an id field is found.
