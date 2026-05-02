@@ -19,6 +19,10 @@ resource "azurerm_kubernetes_cluster" "this" {
     os_disk_size_gb             = 75
     os_disk_type                = "Managed" # Ephemeral not supported on v4/v5 SKUs (no cache disk)
     temporary_name_for_rotation = "tmpsys"
+
+    upgrade_settings {
+      max_surge = "1"
+    }
   }
 
   identity {
