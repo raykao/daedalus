@@ -20,6 +20,7 @@ deploy/terraform/
     acr/           # Standard ACR + AcrPull role to AKS kubelet identity
     keyvault/      # RBAC-mode KV + Secrets User role to workload identity
     identity/      # user-assigned MI + federated credential for daedalus-proxy SA
+    gha-identity/  # user-assigned MI + federated credentials for GitHub Actions OIDC (publishes to ACR)
   envs/
     test.tfvars.example   # committed sample
     test.tfvars           # gitignored, real values
@@ -102,6 +103,54 @@ azure.workload.identity/client-id: <terraform output -raw workload_identity_clie
 ```
 
 The federated credential is bound to that exact namespace + name.
+
+## Wiring GitHub Actions to ACR (Phase 5.2)
+
+The `gha-identity` module provisions a separate user-assigned managed
+identity (`id-<prefix>-<env>-gha`) with federated credentials for GitHub
+Actions OIDC tokens, and grants it `AcrPush` on the ACR (via the
+`acr` module's `additional_push_principal_ids`). No client secrets are
+ever created.
+
+After `terraform apply`, set these as **GitHub Actions repository variables**
+(Settings -> Secrets and variables -> Actions -> Variables):
+
+| GitHub repo variable      | Source                                              |
+| ------------------------- | --------------------------------------------------- |
+| `AZURE_CLIENT_ID`         | `terraform output -raw gha_client_id`               |
+| `AZURE_TENANT_ID`         | `terraform output -raw gha_tenant_id`               |
+| `AZURE_SUBSCRIPTION_ID`   | `terraform output -raw subscription_id`             |
+| `ACR_NAME`                | `terraform output -raw acr_name`                    |
+| `ACR_LOGIN_SERVER`        | `terraform output -raw acr_login_server`            |
+
+These are **variables, not secrets** - none of them are sensitive on their
+own. The federated credential subjects are what gate access.
+
+### Verifying the federated credential matches the workflow
+
+The federated credential subjects must match the OIDC token's `sub` claim,
+which GitHub Actions sets based on the trigger:
+
+- `push`/`workflow_dispatch` on main: `repo:<owner>/<repo>:ref:refs/heads/main`
+- `pull_request` (any branch): `repo:<owner>/<repo>:pull_request`
+- A run inside a deployment environment named `test`: `repo:<owner>/<repo>:environment:test`
+
+To list what was actually registered:
+
+```
+terraform output -json gha_oidc_subjects
+```
+
+If you want to add subjects (e.g. another branch, a tag, a different
+environment), set `github_oidc_subjects` in your tfvars to a list that
+includes everything you want - the variable replaces the default list, it
+does not append.
+
+If a workflow run fails with `AADSTS70021` ("No matching federated identity
+record found"), the `sub` claim on the token did not match any subject on
+the identity. Compare the workflow's actual `sub` (visible in the OIDC
+token's JWT payload, or by inspecting the `azure/login` action's debug
+output) against `terraform output gha_oidc_subjects`.
 
 ## TTL behavior
 

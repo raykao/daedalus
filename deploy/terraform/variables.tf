@@ -94,6 +94,47 @@ variable "workload_identity_service_account" {
   default     = "daedalus-proxy"
 }
 
+variable "github_owner" {
+  description = "GitHub organization or user that owns the repo allowed to assume the GHA managed identity via OIDC."
+  type        = string
+  default     = "raykao"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9-]{0,38}$", var.github_owner))
+    error_message = "github_owner must be a valid GitHub login (alphanumerics + hyphens, 1-39 chars)."
+  }
+}
+
+variable "github_repo" {
+  description = "GitHub repository name (no owner) allowed to assume the GHA managed identity via OIDC."
+  type        = string
+  default     = "daedalus"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]{1,100}$", var.github_repo))
+    error_message = "github_repo must be a valid GitHub repository name."
+  }
+}
+
+variable "github_oidc_subjects" {
+  description = "OIDC subjects to register on the GHA federated credential. If empty, defaults to main-branch pushes, pull_request runs, and an environment:test subject for the configured github_owner/github_repo. Override only if you need to add environments, tags, or other branches; the override replaces (does not append to) the default list."
+  type        = list(string)
+  default     = []
+
+  # Bound the subjects to the configured repo. Without this, an operator
+  # could federate a UAMI with AcrPush to `repo:other-org/other-repo:...`,
+  # silently granting cross-repo OIDC trust. Cross-repo trust must be an
+  # explicit, separate decision (a new module instance with its own
+  # github_owner/github_repo), not a tfvars typo.
+  validation {
+    condition = alltrue([
+      for s in var.github_oidc_subjects :
+      can(regex("^repo:${var.github_owner}/${var.github_repo}:", s))
+    ])
+    error_message = "Every github_oidc_subjects entry must start with \"repo:<github_owner>/<github_repo>:\". Cross-repo OIDC trust must be an explicit, separate decision."
+  }
+}
+
 variable "tags" {
   description = "Common tags applied to every resource."
   type        = map(string)

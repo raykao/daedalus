@@ -16,3 +16,14 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
   role_definition_name = "AcrPull"
   principal_id         = var.aks_kubelet_identity_object_id
 }
+
+# Optional AcrPush grants for non-AKS principals (e.g. the GitHub Actions
+# managed identity that publishes images). Keyed by principal_id so the plan
+# diff is stable regardless of list ordering.
+resource "azurerm_role_assignment" "additional_push" {
+  for_each = toset(var.additional_push_principal_ids)
+
+  scope                = azurerm_container_registry.this.id
+  role_definition_name = "AcrPush"
+  principal_id         = each.value
+}

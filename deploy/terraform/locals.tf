@@ -28,6 +28,20 @@ locals {
   acr_suffix = substr(sha1("${var.subscription_id}-${var.name_prefix}-${var.env_name}"), 0, 6)
   acr_name   = substr(replace("acr${var.name_prefix}${var.env_name}${local.acr_suffix}", "-", ""), 0, 50)
 
+  # GHA managed identity name. Kept short and predictable.
+  gha_identity_name = "id-${var.name_prefix}-${var.env_name}-gha"
+
+  # Default OIDC subjects for the GHA federated credential. Covers
+  # main-branch pushes (workflow_dispatch on main, push to main) and
+  # pull_request runs from forks-of-this-repo. Engineers can override via
+  # var.github_oidc_subjects.
+  github_oidc_default_subjects = [
+    "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main",
+    "repo:${var.github_owner}/${var.github_repo}:pull_request",
+    "repo:${var.github_owner}/${var.github_repo}:environment:test",
+  ]
+  github_oidc_subjects = length(var.github_oidc_subjects) > 0 ? var.github_oidc_subjects : local.github_oidc_default_subjects
+
   # Key Vault names must be 3-24 alphanumeric + hyphens, globally unique.
   # Suffix with a deterministic hash of (subscription, prefix, env) so two
   # different subscriptions don't collide. Right-size the body so the suffix

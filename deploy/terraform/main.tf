@@ -27,7 +27,19 @@ module "acr" {
   resource_group_name            = module.rg.name
   location                       = module.rg.location
   aks_kubelet_identity_object_id = module.aks.kubelet_identity_object_id
+  additional_push_principal_ids  = [module.gha_identity.principal_id]
   tags                           = local.common_tags
+}
+
+module "gha_identity" {
+  source              = "./modules/gha-identity"
+  name                = local.gha_identity_name
+  resource_group_name = module.rg.name
+  location            = module.rg.location
+  github_owner        = var.github_owner
+  github_repo         = var.github_repo
+  subjects            = local.github_oidc_subjects
+  tags                = local.common_tags
 }
 
 module "identity" {

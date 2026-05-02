@@ -1,0 +1,272 @@
+# Build the daedalus images (proxy, mock-acp, echo-a2a) as multi-arch
+# (linux/amd64, linux/arm64), publish to GHCR, and (optionally) mirror the
+# same digests to ACR.
+#
+# ## Required GitHub repository variables
+#
+# The ACR mirror reads these from `vars` (Settings -> Secrets and variables
+# -> Actions -> Variables, *not* secrets - none of these are sensitive on
+# their own; the federated credential subjects are what gate access):
+#
+#   AZURE_CLIENT_ID        # terraform output -raw gha_client_id
+#   AZURE_TENANT_ID        # terraform output -raw gha_tenant_id
+#   AZURE_SUBSCRIPTION_ID  # terraform output -raw subscription_id
+#   ACR_NAME               # terraform output -raw acr_name
+#   ACR_LOGIN_SERVER       # terraform output -raw acr_login_server
+#
+# ## Federated credential subjects
+#
+# Tokens minted by this workflow have a `sub` claim of the form
+# `repo:<owner>/<repo>:<context>`. The Terraform module
+# `deploy/terraform/modules/gha-identity` registers, by default:
+#
+#   repo:raykao/daedalus:ref:refs/heads/main      # workflow_dispatch on main
+#   repo:raykao/daedalus:pull_request             # pull_request runs (future use)
+#   repo:raykao/daedalus:environment:test         # runs scoped to the `test` env
+#
+# This workflow is currently `workflow_dispatch`-only, so the `ref` subject
+# is what matters in practice. If you dispatch from a non-main branch, add
+# that branch's subject to `github_oidc_subjects` in tfvars and re-apply.
+#
+# ## Re-running with a different tag
+#
+# Default tag is `dev-<short-sha>` (first 7 chars of the dispatch's commit
+# SHA). To publish a named tag, dispatch with `tag=<your-tag>`; the `latest`
+# tag will also be applied unless the tag itself starts with `dev-`.
+
+name: Build and Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (default: dev-<short-sha>). The "latest" tag is also applied unless the resolved tag starts with "dev-".'
+        required: false
+        default: ''
+        type: string
+      push_to_acr:
+        description: 'Mirror images from GHCR to ACR. Set false for a GHCR-only run (e.g. when ACR is not yet provisioned).'
+        required: false
+        default: true
+        type: boolean
+
+# Permissions are scoped to what each step needs:
+#   id-token: write    - mint OIDC tokens for azure/login
+#   contents: read     - actions/checkout
+#   packages: write    - push to GHCR
+#   attestations: write - actions/attest-build-provenance writes a sigstore bundle
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+  attestations: write
+
+# Don't cancel an in-flight publish: we'd rather queue than half-push a
+# multi-arch manifest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: build (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: proxy
+            dockerfile: deploy/docker/Dockerfile.proxy
+            context: .
+          - name: mock-acp
+            dockerfile: deploy/docker/Dockerfile.mock-acp
+            context: .
+          - name: echo-a2a
+            dockerfile: deploy/docker/Dockerfile.echo-a2a
+            context: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Resolve the user-provided tag (or default to dev-<short-sha>) and
+      # the lowercase repository owner (GHCR rejects mixed-case paths).
+      # Outputs:
+      #   tag        - the resolved primary tag
+      #   apply_latest - "true" if we should also tag :latest
+      #   owner_lc   - github.repository_owner lowercased
+      - name: Resolve tag and owner
+        id: tag
+        run: |
+          set -euo pipefail
+          input_tag='${{ inputs.tag }}'
+          if [ -z "$input_tag" ]; then
+            short_sha="${GITHUB_SHA::7}"
+            resolved="dev-${short_sha}"
+            apply_latest="false"
+          else
+            resolved="$input_tag"
+            # Don't move :latest for dev-* tags - those are throwaway builds.
+            case "$resolved" in
+              dev-*) apply_latest="false" ;;
+              *)     apply_latest="true" ;;
+            esac
+          fi
+          owner_lc="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "tag=${resolved}"
+            echo "apply_latest=${apply_latest}"
+            echo "owner_lc=${owner_lc}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: ${resolved} (apply_latest=${apply_latest}, owner=${owner_lc})"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Azure login (OIDC)
+        if: ${{ inputs.push_to_acr }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        if: ${{ inputs.push_to_acr }}
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      # Compose the full set of tags to push. build-push-action accepts a
+      # newline-separated list; conditionals are easier in shell than in
+      # YAML expressions.
+      - name: Compute image tags
+        id: tags
+        env:
+          IMAGE_NAME: ${{ matrix.image.name }}
+          OWNER_LC: ${{ steps.tag.outputs.owner_lc }}
+          PRIMARY_TAG: ${{ steps.tag.outputs.tag }}
+          APPLY_LATEST: ${{ steps.tag.outputs.apply_latest }}
+          PUSH_TO_ACR: ${{ inputs.push_to_acr }}
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+        run: |
+          set -euo pipefail
+          tags=()
+          tags+=("ghcr.io/${OWNER_LC}/daedalus/${IMAGE_NAME}:${PRIMARY_TAG}")
+          if [ "${APPLY_LATEST}" = "true" ]; then
+            tags+=("ghcr.io/${OWNER_LC}/daedalus/${IMAGE_NAME}:latest")
+          fi
+          if [ "${PUSH_TO_ACR}" = "true" ]; then
+            tags+=("${ACR_LOGIN_SERVER}/daedalus/${IMAGE_NAME}:${PRIMARY_TAG}")
+            if [ "${APPLY_LATEST}" = "true" ]; then
+              tags+=("${ACR_LOGIN_SERVER}/daedalus/${IMAGE_NAME}:latest")
+            fi
+          fi
+          # Emit as a multi-line output (newline-delimited).
+          {
+            echo "list<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Will push tags:"
+          printf '  %s\n' "${tags[@]}"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      # Trivy is invoked four times on purpose:
+      #   1. Warn-only HIGH/CRITICAL pass for visibility in the summary.
+      #   2. Blocking CRITICAL-only pass that fails the job. This lets us
+      #      tighten the gate later (move HIGH to blocking) by flipping
+      #      exit-code on the first invocation; until then, CRITICAL alone
+      #      is the hard line.
+      #
+      # Each pass runs once per published platform (linux/amd64, linux/arm64).
+      # Pointing trivy-action at a multi-arch manifest causes it to scan only
+      # the platform matching the host (amd64 on ubuntu-latest), so arm64-only
+      # CVEs (different base layer digest, different package versions) would
+      # silently bypass the gate. We publish both platforms; the gate must
+      # cover both.
+      #
+      # TRIVY_USERNAME/TRIVY_PASSWORD authenticate trivy's pull against GHCR.
+      # The earlier `docker login` only covers the docker CLI; trivy-action
+      # runs in its own container and pulls directly, so it needs its own
+      # credentials. Without these, scans of new (private-by-default) GHCR
+      # packages fail with `unauthorized` until visibility is flipped to
+      # public.
+      - name: Trivy scan amd64 (warn HIGH+CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: table
+          ignore-unfixed: true
+
+      - name: Trivy scan arm64 (warn HIGH+CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: table
+          ignore-unfixed: true
+
+      - name: Trivy scan amd64 (block CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL'
+          exit-code: '1'
+          format: table
+          ignore-unfixed: true
+
+      - name: Trivy scan arm64 (block CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL'
+          exit-code: '1'
+          format: table
+          ignore-unfixed: true
+
+      - name: Attest build provenance (GHCR)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
