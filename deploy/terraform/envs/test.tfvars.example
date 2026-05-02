@@ -1,0 +1,13 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+env_name        = "test"
+region          = "eastus"
+name_prefix     = "daedalus"
+node_count      = 2
+node_vm_size    = "Standard_D2s_v5"
+ttl_hours       = 4
+
+tags = {
+  project    = "daedalus"
+  phase      = "5"
+  managed_by = "terraform"
+}
