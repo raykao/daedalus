@@ -116,16 +116,26 @@ az storage container create \
   --account-key "$SA_KEY" >/dev/null
 log "container $CONTAINER ready"
 
-log "granting current user Storage Blob Data Contributor on the storage account"
+log "granting current user Storage Blob Data Contributor on the storage account (for backend access)"
 CURRENT_USER_OID=$(az ad signed-in-user show --query id -o tsv)
 SA_ID=$(az storage account show -g "$RG" -n "$SA_NAME" --query id -o tsv)
-az role assignment create \
-  --assignee-object-id "$CURRENT_USER_OID" \
-  --assignee-principal-type User \
-  --role "Storage Blob Data Contributor" \
-  --scope "$SA_ID" >/dev/null 2>&1 || \
-  log "role assignment for Storage Blob Data Contributor may already exist (continuing)"
-log "RBAC for daily terraform use is in place (propagation can take a few minutes)"
+RBAC_ERR="$(mktemp)"
+trap 'rm -f "$RBAC_ERR"' EXIT
+if ! az role assignment create \
+    --assignee-object-id "$CURRENT_USER_OID" \
+    --assignee-principal-type User \
+    --role "Storage Blob Data Contributor" \
+    --scope "$SA_ID" >/dev/null 2>"$RBAC_ERR"; then
+  if grep -qiE "RoleAssignmentExists|already exists" "$RBAC_ERR"; then
+    log "Storage Blob Data Contributor role already assigned to current user (continuing)"
+  else
+    log "ERROR: role assignment failed:"
+    cat "$RBAC_ERR" >&2
+    fail "Failed to grant Storage Blob Data Contributor. Verify you have Microsoft.Authorization/roleAssignments/write on the storage account scope."
+  fi
+fi
+log "RBAC for daily terraform use is in place"
+log "RBAC propagation can take up to 5 minutes; if 'terraform init' fails with auth errors, wait and retry."
 
 cat <<EOF
 
