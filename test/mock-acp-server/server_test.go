@@ -213,72 +213,88 @@ t.Errorf("expected error message to mention deny, got %q", rpcErr.Message)
 }
 }
 
-func TestConnectionCloseUnblocksAwaiter(t *testing.T) {
-cfg := fastCfg()
-cfg.StreamingDelay = 0
-cfg.ResponseDelay = 0
-cfg.SendPermissions = true
-addr := startTestServer(t, cfg)
-tc := newTestClient(t, addr)
+// TestConn_WriteRequestAwaitResponse_UnblocksOnClose directly exercises the
+// unit-under-test: a *conn whose Close() must wake any in-flight
+// WriteRequestAwaitResponse callers far sooner than the per-call timeout.
+//
+// The previous integration-style test (TestConnectionCloseUnblocksAwaiter) only
+// timed tc.c.Close(), which is a local TCP close that returns instantly even
+// if the server-side handler is wedged on a 30s timer. It was a false positive:
+// it passed regardless of whether close-cleanup actually ran. This unit test
+// instead constructs a *conn over net.Pipe(), starts an awaiter, calls Close(),
+// and asserts the awaiter returns within 200ms with the expected error shape.
+func TestConn_WriteRequestAwaitResponse_UnblocksOnClose(t *testing.T) {
+serverSide, clientSide := net.Pipe()
+// Drain anything the server writes so WriteRequest can complete (net.Pipe
+// is synchronous and unbuffered; without a reader the Write inside
+// WriteRequest would block before the awaiter ever reaches its select).
+go func() {
+buf := make([]byte, 4096)
+for {
+if _, err := clientSide.Read(buf); err != nil {
+return
+}
+}
+}()
+defer clientSide.Close()
 
-tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
-sid := nr["sessionId"].(string)
+c := newConn(serverSide)
 
-// Issue session/prompt; do NOT respond to the permission request — instead,
-// close the connection and verify the server-side handler unwinds quickly
-// (well under the 30s WriteRequestAwaitResponse timeout).
-id := tc.nextID()
-if err := tc.c.WriteMessage(Request{
-JSONRPC: "2.0",
-ID:      &id,
-Method:  "session/prompt",
-Params: mustMarshal(t, map[string]any{
-"sessionId": sid,
-"prompt":    []map[string]any{{"type": "text", "text": "hi"}},
-}),
-}); err != nil {
-t.Fatalf("write prompt: %v", err)
+type awaiterResult struct {
+resp *Response
+err  error
 }
+done := make(chan awaiterResult, 1)
+go func() {
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+resp, err := c.WriteRequestAwaitResponse(ctx, "session/request_permission",
+map[string]any{"sessionId": "x"}, 30*time.Second)
+done <- awaiterResult{resp: resp, err: err}
+}()
 
-// Wait for the server-to-client request to arrive on the wire.
-deadline := time.Now().Add(2 * time.Second)
-sawPermission := false
-for time.Now().Before(deadline) && !sawPermission {
-if !tc.scanner.Scan() {
-t.Fatal("scanner closed before permission request arrived")
-}
-var raw map[string]json.RawMessage
-if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
-t.Fatalf("parse: %v", err)
-}
-_, hasID := raw["id"]
-_, hasMethod := raw["method"]
-if hasID && hasMethod {
-sawPermission = true
-break
-}
-}
-if !sawPermission {
-t.Fatal("did not observe session/request_permission")
-}
+// Give the goroutine a moment to send the request and register a pending
+// entry before we close.
+time.Sleep(20 * time.Millisecond)
 
-// Close the connection. The server-side awaiter must wake up far sooner
-// than the 30s timeout. We give it 2s of headroom.
 start := time.Now()
-tc.c.Close()
-// Best signal we have from the outside: the server's handler will never
-// produce a final response. Just sleep briefly and confirm the test
-// itself completes promptly. The real check is that no goroutines hang
-// on the 30s timer; we approximate by ensuring close is synchronous and
-// returns instantly.
-elapsed := time.Since(start)
-if elapsed > 2*time.Second {
-t.Errorf("Close took too long: %v", elapsed)
+if err := c.Close(); err != nil {
+// net.Pipe Close should not error; log for visibility but don't fail.
+t.Logf("Close returned: %v", err)
 }
-// Give the server a moment to clean up, but fail loudly if it
-// somehow took 30s+.
-time.Sleep(100 * time.Millisecond)
+
+select {
+case r := <-done:
+elapsed := time.Since(start)
+if elapsed > 200*time.Millisecond {
+t.Errorf("WriteRequestAwaitResponse took %v after Close (want <200ms)", elapsed)
+}
+// Two valid wakeup paths exist due to select non-determinism in
+// WriteRequestAwaitResponse:
+//   1. <-c.done fires first: the awaiter returns (nil, "connection closed").
+//   2. The synthetic Response queued by Close()'s pending.Range is
+//      received first: the awaiter returns (resp, nil) where
+//      resp.Error has Code=ErrInternal, Message="connection closed".
+// Both prove cleanup ran; accept either.
+if r.err == nil {
+if r.resp == nil || r.resp.Error == nil {
+t.Fatalf("expected synthetic response with non-nil error, got %+v", r.resp)
+}
+if r.resp.Error.Code != ErrInternal {
+t.Errorf("synthetic error code = %d, want ErrInternal (%d)", r.resp.Error.Code, ErrInternal)
+}
+if !strings.Contains(strings.ToLower(r.resp.Error.Message), "connection closed") {
+t.Errorf("synthetic error message = %q, want contains 'connection closed'", r.resp.Error.Message)
+}
+} else {
+if !strings.Contains(strings.ToLower(r.err.Error()), "connection closed") {
+t.Errorf("error = %v, want contains 'connection closed'", r.err)
+}
+}
+
+case <-time.After(2 * time.Second):
+t.Fatal("WriteRequestAwaitResponse did not return within 2s of Close - cleanup is broken")
+}
 }
 
 func TestMaxSessions(t *testing.T) {
