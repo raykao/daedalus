@@ -192,14 +192,32 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
 
-      # Trivy is invoked twice on purpose:
+      # Trivy is invoked four times on purpose:
       #   1. Warn-only HIGH/CRITICAL pass for visibility in the summary.
       #   2. Blocking CRITICAL-only pass that fails the job. This lets us
       #      tighten the gate later (move HIGH to blocking) by flipping
       #      exit-code on the first invocation; until then, CRITICAL alone
       #      is the hard line.
-      - name: Trivy scan (warn HIGH+CRITICAL)
+      #
+      # Each pass runs once per published platform (linux/amd64, linux/arm64).
+      # Pointing trivy-action at a multi-arch manifest causes it to scan only
+      # the platform matching the host (amd64 on ubuntu-latest), so arm64-only
+      # CVEs (different base layer digest, different package versions) would
+      # silently bypass the gate. We publish both platforms; the gate must
+      # cover both.
+      #
+      # TRIVY_USERNAME/TRIVY_PASSWORD authenticate trivy's pull against GHCR.
+      # The earlier `docker login` only covers the docker CLI; trivy-action
+      # runs in its own container and pulls directly, so it needs its own
+      # credentials. Without these, scans of new (private-by-default) GHCR
+      # packages fail with `unauthorized` until visibility is flipped to
+      # public.
+      - name: Trivy scan amd64 (warn HIGH+CRITICAL)
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/amd64
         with:
           image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
           severity: 'CRITICAL,HIGH'
@@ -207,8 +225,38 @@ jobs:
           format: table
           ignore-unfixed: true
 
-      - name: Trivy scan (block CRITICAL)
+      - name: Trivy scan arm64 (warn HIGH+CRITICAL)
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: table
+          ignore-unfixed: true
+
+      - name: Trivy scan amd64 (block CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
+          severity: 'CRITICAL'
+          exit-code: '1'
+          format: table
+          ignore-unfixed: true
+
+      - name: Trivy scan arm64 (block CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          TRIVY_PLATFORM: linux/arm64
         with:
           image-ref: ghcr.io/${{ steps.tag.outputs.owner_lc }}/daedalus/${{ matrix.image.name }}:${{ steps.tag.outputs.tag }}
           severity: 'CRITICAL'

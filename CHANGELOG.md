@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `build-and-publish` workflow: Trivy now authenticates to GHCR (via `TRIVY_USERNAME`/`TRIVY_PASSWORD` env) and scans both published platforms (linux/amd64 and linux/arm64) instead of only the host platform. Without auth, scans of new (private-by-default) GHCR packages failed with `unauthorized`; without per-platform scans, arm64-only CVEs silently bypassed the gate.
 - (Phase 5.1 review fixes, all in implementation commits before merge): KV name truncation now preserves uniqueness suffix; ACR has deterministic global-uniqueness suffix; bootstrap script uses account-key auth and grants required RBAC; node_vm_size validated against D-series allowlist; OS disk type set to Managed (Ephemeral incompatible with Dsv4/Dsv5 cache-less SKUs)
 - `waitForNATS` use-after-close bug: `nc.Close()` was called before `js.AccountInfo(ctx)` so the readiness probe always failed and `TestEndToEnd_CompletedTask` timed out at the 60s deadline. Refactored into a `probeNATS()` helper with `defer nc.Close()`.
 - `OrderedConsumer` late-bind race in `compose_test.go::TestEndToEnd_CompletedTask`: a fast `working` status update could arrive before the consumer was server-side bound, causing a flaky failure. Switched to `CreateOrUpdateConsumer` with `DeliverByStartTimePolicy` so the start point is set before the publish.
