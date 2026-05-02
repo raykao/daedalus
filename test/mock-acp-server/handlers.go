@@ -177,6 +177,31 @@ type PermissionRequestParams struct {
 	Options   []PermissionOption `json:"options"`
 }
 
+// permissionApprovalResult is the typed shape of a session/request_permission
+// response's `result` field.
+type permissionApprovalResult struct {
+	Outcome struct {
+		OptionID string `json:"optionId"`
+	} `json:"outcome"`
+}
+
+// unmarshalResult decodes a Response.Result (which may be json.RawMessage if
+// it round-tripped via the read loop, or a Go value if set by the server)
+// into the destination struct.
+func unmarshalResult(result any, dst any) error {
+	if result == nil {
+		return fmt.Errorf("nil result")
+	}
+	if raw, ok := result.(json.RawMessage); ok {
+		return json.Unmarshal(raw, dst)
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, dst)
+}
+
 type Artifact struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -260,7 +285,23 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, c *conn, req *Request
 			_ = c.WriteResponse(req.ID, nil, resp.Error)
 			return
 		}
-		slog.Info("permission granted", "sessionId", params.SessionID)
+
+		// Parse the outcome and validate optionId.
+		var approval permissionApprovalResult
+		if err := unmarshalResult(resp.Result, &approval); err != nil || approval.Outcome.OptionID == "" {
+			slog.Warn("invalid permission response", "err", err)
+			_ = c.WriteResponse(req.ID, nil, &RPCError{Code: ErrInternal, Message: "invalid permission response"})
+			return
+		}
+		if approval.Outcome.OptionID != "allow_once" {
+			slog.Info("permission denied", "sessionId", params.SessionID, "optionId", approval.Outcome.OptionID)
+			_ = c.WriteResponse(req.ID, nil, &RPCError{
+				Code:    ErrInternal,
+				Message: "permission denied: " + approval.Outcome.OptionID,
+			})
+			return
+		}
+		slog.Info("permission granted", "sessionId", params.SessionID, "optionId", approval.Outcome.OptionID)
 	}
 
 	// Final response after optional delay.
