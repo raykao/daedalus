@@ -58,3 +58,32 @@ output "expires_at" {
   description = "ISO 8601 timestamp at which the cleanup workflow considers this RG eligible for deletion."
   value       = local.expires_at
 }
+
+# --- GitHub Actions OIDC identity ---------------------------------------------
+# These outputs are wired into the GitHub repo as Actions variables. The
+# build-and-publish workflow reads them via ${{ vars.AZURE_CLIENT_ID }} etc.
+
+output "subscription_id" {
+  description = "Echo of the input subscription_id. Set as the GitHub repo variable AZURE_SUBSCRIPTION_ID."
+  value       = var.subscription_id
+}
+
+output "gha_client_id" {
+  description = "Client ID of the GitHub Actions managed identity. Set as the GitHub repo variable AZURE_CLIENT_ID."
+  value       = module.gha_identity.client_id
+}
+
+output "gha_tenant_id" {
+  description = "Tenant ID of the GitHub Actions managed identity. Set as the GitHub repo variable AZURE_TENANT_ID."
+  value       = module.gha_identity.tenant_id
+}
+
+output "gha_principal_id" {
+  description = "Object/principal ID of the GitHub Actions managed identity. Useful for verifying role assignments out-of-band."
+  value       = module.gha_identity.principal_id
+}
+
+output "gha_oidc_subjects" {
+  description = "OIDC subjects the GHA federated credential will accept. Cross-check these against the workflow's branch/PR/environment triggers."
+  value       = module.gha_identity.subjects
+}

@@ -6,6 +6,18 @@ node_count      = 2
 node_vm_size    = "Standard_D2s_v5"
 ttl_hours       = 4
 
+# GitHub repo whose Actions runs are allowed to assume the GHA managed
+# identity via OIDC. Defaults to raykao/daedalus; override only if you fork.
+# github_owner = "raykao"
+# github_repo  = "daedalus"
+
+# Override the federated credential subjects. Empty list (the default)
+# expands to:
+#   repo:<github_owner>/<github_repo>:ref:refs/heads/main
+#   repo:<github_owner>/<github_repo>:pull_request
+#   repo:<github_owner>/<github_repo>:environment:test
+# github_oidc_subjects = []
+
 tags = {
   project    = "daedalus"
   phase      = "5"
