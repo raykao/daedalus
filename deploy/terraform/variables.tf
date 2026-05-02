@@ -30,7 +30,7 @@ variable "region" {
 }
 
 variable "name_prefix" {
-  description = "Prefix used in all resource names. Lowercase alphanumerics, 3-12 chars."
+  description = "Prefix used in all resource names. Lowercase alphanumerics, 3-12 chars. Combined with env_name, the body of the Key Vault name is truncated to 14 chars (so a 6-char uniqueness suffix always survives Azure's 24-char KV cap)."
   type        = string
   default     = "daedalus"
 

@@ -28,7 +28,10 @@ locals {
 
   # Key Vault names must be 3-24 alphanumeric + hyphens, globally unique.
   # Suffix with a deterministic hash of (subscription, prefix, env) so two
-  # different subscriptions don't collide.
+  # different subscriptions don't collide. Right-size the body so the suffix
+  # always survives the 24-char cap:
+  #   "kv-" (3) + body (<=14) + "-" (1) + suffix (6) = <= 24.
   kv_suffix = substr(sha1("${var.subscription_id}-${var.name_prefix}-${var.env_name}"), 0, 6)
-  kv_name   = substr("kv-${var.name_prefix}-${var.env_name}-${local.kv_suffix}", 0, 24)
+  kv_body   = substr("${var.name_prefix}-${var.env_name}", 0, 14)
+  kv_name   = "kv-${local.kv_body}-${local.kv_suffix}"
 }
