@@ -19,6 +19,6 @@ output "tenant_id" {
 }
 
 output "subjects" {
-  description = "Resolved list of OIDC subjects this identity will accept tokens for."
+  description = "OIDC subjects registered on this identity's federated credentials."
   value       = var.subjects
 }
