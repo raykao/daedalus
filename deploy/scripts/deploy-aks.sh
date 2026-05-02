@@ -338,10 +338,11 @@ step "Step 9: Wiring Azure Workload Identity"
 kubectl label namespace "${NAMESPACE}" azure.workload.identity/use=true --overwrite >/dev/null
 info "Labeled namespace ${NAMESPACE} with azure.workload.identity/use=true"
 
-# The Helm chart creates ServiceAccounts named "${RELEASE_NAME}-<worker>".
-# We annotate them post-helm-install (Step 12). Record the desired annotation
-# here so Step 12 can reference WI_CLIENT_ID via the env it already has.
-info "Workload identity client ID will be applied to worker ServiceAccounts in Step 12"
+# The chart does not currently template a ServiceAccount or set
+# serviceAccountName, so pods run with the namespace's `default` SA.
+# Step 12 annotates `default` after helm install. When a future phase
+# templates per-worker SAs, the SA-annotation step must follow them.
+info "Workload identity client ID will be applied to the default ServiceAccount in Step 12"
 pass "Workload identity prerequisites set"
 
 # ---------------------------------------------------------------------------
@@ -406,22 +407,17 @@ helm upgrade --install "${RELEASE_NAME}" deploy/helm/daedalus/ \
     --set "workers[0].image.tag=${IMAGE_TAG}" \
     --wait --timeout 10m
 
-# Annotate worker ServiceAccounts for workload identity. The Helm chart does
-# not currently template SA annotations from values, so we patch them here.
-# This is idempotent (annotate --overwrite).
-SAS=$(kubectl get serviceaccounts -n "${NAMESPACE}" \
-    -l "app.kubernetes.io/instance=${RELEASE_NAME}" \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-if [[ -n "${SAS}" ]]; then
-    while IFS= read -r sa; do
-        [[ -z "${sa}" ]] && continue
-        kubectl annotate serviceaccount "${sa}" \
-            -n "${NAMESPACE}" \
-            "azure.workload.identity/client-id=${WI_CLIENT_ID}" \
-            --overwrite >/dev/null
-        info "Annotated ServiceAccount ${sa}"
-    done <<<"${SAS}"
-fi
+# Annotate the default ServiceAccount in the namespace with the workload-identity
+# client-id. Pods in this chart do not set serviceAccountName, so they use
+# `default`. When the chart later templates per-worker SAs (or any pod sets
+# serviceAccountName explicitly), the WI wiring will need to follow that SA;
+# until then, annotating `default` is what consumers will pick up.
+# Idempotent via --overwrite.
+kubectl annotate serviceaccount default \
+    -n "${NAMESPACE}" \
+    "azure.workload.identity/client-id=${WI_CLIENT_ID}" \
+    --overwrite >/dev/null
+info "Annotated ServiceAccount default in ${NAMESPACE} with workload-identity client-id"
 pass "Helm release ${RELEASE_NAME} converged"
 
 # ---------------------------------------------------------------------------
