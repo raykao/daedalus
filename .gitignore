@@ -12,3 +12,14 @@ coverage.out
 .vscode/
 *.swp
 *~
+
+# Terraform (deploy/terraform)
+# Note: .terraform.lock.hcl IS committed for reproducibility - do NOT ignore it.
+deploy/terraform/**/*.tfstate
+deploy/terraform/**/*.tfstate.*
+deploy/terraform/.terraform/
+deploy/terraform/**/.terraform/
+deploy/terraform/**/*.tfvars
+!deploy/terraform/envs/*.tfvars.example
+deploy/terraform/crash.log
+deploy/terraform/crash.*.log
