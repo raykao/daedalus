@@ -6,8 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Terraform: GitHub Actions managed identity (`gha-identity` module) with federated credentials for `repo:raykao/daedalus:ref:refs/heads/main`, `repo:raykao/daedalus:pull_request`, and `repo:raykao/daedalus:environment:test`, granted AcrPush on the ACR. Outputs `gha_client_id`, `gha_tenant_id`, `gha_principal_id`, `gha_oidc_subjects`, and `subscription_id` for wiring into GitHub repo variables.
+- GitHub Actions workflow `.github/workflows/build-and-publish.yml` (`workflow_dispatch`) that builds proxy, mock-acp, and echo-a2a as multi-arch (linux/amd64, linux/arm64) images, publishes to GHCR, optionally mirrors identical digests to ACR via OIDC (no static secrets), runs Trivy scans (warn HIGH, block CRITICAL), and emits build provenance attestations pushed to the registry.
+
 ### Changed
 
+- Terraform `acr` module accepts `additional_push_principal_ids` for granting AcrPush to non-AKS principals (used by the GHA identity).
+- Terraform README documents the post-apply GitHub repo variable wiring (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME`, `ACR_LOGIN_SERVER`) and how to verify federated credential subjects against the workflow's triggers.
+- `Dockerfile.proxy` now cross-compiles via `--platform=$BUILDPLATFORM` + `GOARCH=$TARGETARCH` (replacing the hard-coded `GOARCH=amd64`) so multi-arch buildx runs produce correct linux/arm64 binaries.
 - Replaced monolithic deploy/terraform/*.tf (Phase 4) with modular Phase 5 layout
 - `mock-acp-server` now speaks ACP protocol v1 to match `internal/acp/client.go` and the real `@github/copilot@1.0.36`:
   - `protocolVersion`: integer `1` (was string `"2025-01-01"`)
