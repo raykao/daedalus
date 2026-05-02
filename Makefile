@@ -1,4 +1,5 @@
 .PHONY: test-contract test-conformance test test-integration test-smoke \
+        test-aks-e2e \
         helm-aks-deploy helm-aks-teardown helm-aks-status helm-aks-logs \
         deploy-aks-test destroy-aks-test aks-credentials aks-status
 
@@ -47,6 +48,30 @@ test-smoke:
 		go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s; \
 	else \
 		echo "ERROR: GITHUB_TOKEN not set. Set it in the environment or copy smoke.env.example to smoke.env and fill in your token."; \
+		exit 1; \
+	fi
+
+# test-aks-e2e - run the Phase 5.4 end-to-end harness against a live AKS
+# cluster. Pre-conditions:
+#   1. `make deploy-aks-test` has succeeded (cluster + Helm release up)
+#   2. NATS is reachable at $$NATS_URL. For local runs, port-forward first:
+#        kubectl port-forward -n daedalus svc/daedalus-nats 4222:4222 &
+#   3. aks.env exists at the repo root (copy from aks.env.example), or the
+#      required env vars are exported in the shell.
+test-aks-e2e:
+	@if [ -z "$$NATS_URL" ] && [ -f aks.env ]; then \
+		echo "Loading config from aks.env..."; \
+		set -a && . ./aks.env && set +a && \
+		test -n "$$NATS_URL" || { echo "ERROR: NATS_URL not set in aks.env"; exit 1; } && \
+		go test -tags aks_e2e ./test/e2e/aks/... -v -count=1 -timeout 30m; \
+	elif [ -n "$$NATS_URL" ]; then \
+		go test -tags aks_e2e ./test/e2e/aks/... -v -count=1 -timeout 30m; \
+	else \
+		echo "ERROR: NATS_URL not set and no aks.env file found."; \
+		echo "       Copy aks.env.example to aks.env and fill in values, or export NATS_URL,"; \
+		echo "       KUBE_CONTEXT and friends in the environment before re-running."; \
+		echo "       Typical local setup also requires:"; \
+		echo "         kubectl port-forward -n daedalus svc/daedalus-nats 4222:4222 &"; \
 		exit 1; \
 	fi
 

@@ -1,5 +1,6 @@
 # Local credentials - never commit
 smoke.env
+aks.env
 *.env.local
 .env.local
 
