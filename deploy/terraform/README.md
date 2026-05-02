@@ -32,8 +32,7 @@ deploy/terraform/
 
 - Terraform `>= 1.7.0`
 - Azure CLI, logged in (`az login`)
-- The target subscription (`00000000-0000-0000-0000-000000000000` for the
-  shared test sub) is selectable: `az account set --subscription <id>`
+- The target subscription is selectable: `az account set --subscription <your-subscription-id>`
 - Permissions to create role assignments at the resource-group scope (the
   modules grant AcrPull, KV Secrets User, KV Secrets Officer)
 
@@ -42,7 +41,7 @@ deploy/terraform/
 1. Bootstrap remote state:
 
    ```
-   ./bootstrap/bootstrap.sh --subscription 00000000-0000-0000-0000-000000000000
+   ./bootstrap/bootstrap.sh --subscription <your-subscription-id>
    ```
 
    Copy the printed `backend.tf` snippet into `backend.tf` (replacing the

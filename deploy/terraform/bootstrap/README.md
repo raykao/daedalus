@@ -16,7 +16,7 @@ Then it prints the exact `backend.tf` snippet to paste into
 ## Usage
 
 ```
-./bootstrap/bootstrap.sh --subscription 00000000-0000-0000-0000-000000000000
+./bootstrap/bootstrap.sh --subscription <your-subscription-id>
 ```
 
 Run once per subscription. Re-running is safe: it reuses the existing storage
