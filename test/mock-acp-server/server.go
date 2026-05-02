@@ -257,7 +257,10 @@ func (s *Server) handleConn(ctx context.Context, c *conn) {
 			continue
 		}
 		slog.Debug("received request", "method", req.Method, "id", req.ID)
-		s.handler.Dispatch(ctx, c, &req)
+		// Dispatch each request in its own goroutine so a long-running
+		// handler (e.g. one that issues a server-to-client request and
+		// waits for the response) doesn't stall the read loop.
+		go s.handler.Dispatch(ctx, c, &req)
 	}
 	if err := scanner.Err(); err != nil {
 		slog.Debug("connection closed", "err", err)

@@ -52,8 +52,8 @@ defer tc.close()
 
 result := tc.sendRequest(t, "initialize", defaultInitParams())
 
-if result["protocolVersion"] != "2025-01-01" {
-t.Errorf("expected protocolVersion 2025-01-01, got %v", result["protocolVersion"])
+if result["protocolVersion"] != float64(1) {
+t.Errorf("expected protocolVersion 1, got %v", result["protocolVersion"])
 }
 caps, _ := result["capabilities"].(map[string]any)
 if caps == nil {
@@ -70,7 +70,7 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-result := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+result := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 if result["sessionId"] == "" {
 t.Error("expected non-empty sessionId")
 }
@@ -85,7 +85,7 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
 deltas, result := tc.sendPrompt(t, sid, "create hello.txt")
@@ -103,7 +103,7 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
 result := tc.sendRequest(t, "session/cancel", map[string]any{"sessionId": sid})
@@ -121,7 +121,7 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
 tc.sendPrompt(t, sid, "hello")
@@ -142,7 +142,7 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
 _, result := tc.sendPrompt(t, sid, "create hello.txt")
@@ -160,12 +160,12 @@ defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
 for i := 0; i < 2; i++ {
-r := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+r := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 if r["sessionId"] == nil {
 t.Fatalf("session %d should succeed", i+1)
 }
 }
-_, rpcErr := tc.sendRequestRaw(t, "session/new", map[string]any{"workDir": "/workspace"})
+_, rpcErr := tc.sendRequestRaw(t, "session/new", map[string]any{"cwd": "/workspace"})
 if rpcErr == nil {
 t.Error("expected error when max sessions exceeded")
 }
@@ -190,12 +190,12 @@ tc := newTestClient(t, addr)
 defer tc.close()
 
 tc.sendRequest(t, "initialize", defaultInitParams())
-nr := tc.sendRequest(t, "session/new", map[string]any{"workDir": "/workspace"})
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
 _, rpcErr := tc.sendRequestRaw(t, "session/prompt", map[string]any{
 "sessionId": sid,
-"prompt":    "hello",
+"prompt":    []map[string]any{{"type": "text", "text": "hello"}},
 })
 if rpcErr == nil {
 t.Error("expected error from FailOnPrompt")
@@ -252,7 +252,8 @@ return tc.readResponseSkipNotifications(t)
 }
 
 // sendPrompt writes a session/prompt request and collects all notifications
-// until the final response arrives.
+// until the final response arrives. Auto-responds to any
+// session/request_permission server requests with optionId=allow_once.
 func (tc *testClient) sendPrompt(t *testing.T, sessionID, prompt string) ([]map[string]any, map[string]any) {
 t.Helper()
 id := tc.nextID()
@@ -262,7 +263,7 @@ ID:      &id,
 Method:  "session/prompt",
 Params: mustMarshal(t, map[string]any{
 "sessionId": sessionID,
-"prompt":    prompt,
+"prompt":    []map[string]any{{"type": "text", "text": prompt}},
 }),
 }); err != nil {
 t.Fatalf("write prompt: %v", err)
@@ -274,7 +275,34 @@ var raw map[string]json.RawMessage
 if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
 t.Fatalf("parse message: %v", err)
 }
-if _, hasID := raw["id"]; !hasID {
+_, hasID := raw["id"]
+_, hasMethod := raw["method"]
+// Server-to-client request (has both id and method): respond and continue.
+if hasID && hasMethod {
+var inReq Request
+if err := json.Unmarshal(tc.scanner.Bytes(), &inReq); err != nil {
+t.Fatalf("parse server request: %v", err)
+}
+if inReq.Method == "session/request_permission" {
+_ = tc.c.WriteMessage(map[string]any{
+"jsonrpc": "2.0",
+"id":      inReq.ID,
+"result": map[string]any{
+"outcome": map[string]any{"optionId": "allow_once"},
+},
+})
+continue
+}
+// Unknown server request: send method-not-found.
+_ = tc.c.WriteMessage(map[string]any{
+"jsonrpc": "2.0",
+"id":      inReq.ID,
+"error":   map[string]any{"code": -32601, "message": "method not found"},
+})
+continue
+}
+// Notification (method but no id).
+if !hasID && hasMethod {
 var params map[string]any
 if p, ok := raw["params"]; ok {
 _ = json.Unmarshal(p, &params)
@@ -282,6 +310,7 @@ _ = json.Unmarshal(p, &params)
 notifications = append(notifications, params)
 continue
 }
+// Response to our prompt (id, no method).
 if errRaw, ok := raw["error"]; ok && string(errRaw) != "null" {
 var rpcErr RPCError
 _ = json.Unmarshal(errRaw, &rpcErr)
@@ -336,7 +365,7 @@ return b
 
 func defaultInitParams() map[string]any {
 return map[string]any{
-"protocolVersion": "2025-01-01",
+"protocolVersion": 1,
 "capabilities":    map[string]any{"streaming": true},
 "clientInfo":      map[string]any{"name": "test", "version": "0.0.1"},
 }
