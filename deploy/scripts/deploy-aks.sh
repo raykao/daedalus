@@ -318,7 +318,7 @@ else
     if ! helm repo list -o json 2>/dev/null | jq -e '.[] | select(.name=="kedacore")' >/dev/null; then
         helm repo add kedacore https://kedacore.github.io/charts >/dev/null
     fi
-    helm repo update kedacore >/dev/null
+    helm repo update >/dev/null
     helm upgrade --install keda kedacore/keda \
         --namespace keda \
         --create-namespace \

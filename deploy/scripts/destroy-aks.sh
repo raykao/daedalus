@@ -83,7 +83,7 @@ if command -v helm >/dev/null 2>&1 && command -v kubectl >/dev/null 2>&1 \
     info "Reaping PVCs in ${NAMESPACE} (preventing orphaned managed disks)..."
     kubectl delete pvc --all --namespace "${NAMESPACE}" \
         --ignore-not-found --wait=true --timeout=120s \
-        >/dev/null 2>&1 || warn "PVC reap timed out or unreachable - check MC_* RG for leaks"
+        >/dev/null || warn "PVC reap timed out or unreachable - check MC_* RG for leaks"
 else
     warn "kubectl context not pointing at a live cluster (or helm/kubectl missing) - skipping helm uninstall"
 fi
