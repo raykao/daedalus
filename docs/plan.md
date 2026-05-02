@@ -308,6 +308,107 @@ Validate the pluggable runtime model by running two different agent runtimes in 
 
 ---
 
+## Phase 4 - Real-World Validation and Deployment (Complete, v0.2.0)
+
+Goal: prove the platform works end-to-end with a real agent CLI on real infrastructure. Closed as epic #24, tagged `v0.2.0`.
+
+Delivered:
+
+- 4.1 Copilot CLI ACP container + Docker Compose validation stack (PR #25)
+- 4.2 End-to-end smoke test against `@github/copilot@1.0.36` (~53s RTT documented in `docs/smoke-test.md`)
+- 4.3 Terraform scaffolding for an isolated test AKS resource group
+- 4.4 Helm deployment to AKS with KEDA ScaledJob, scale-to-zero, and SIGTERM graceful shutdown validated (PR #29)
+- 4.5 Deployment runbook and annotated production values overlay (PR #30)
+
+Phase 4 validated the runtime contract end-to-end but the AKS provisioning was hand-driven and the cluster lifecycle was manual. Phase 5 promotes that work into repeatable infrastructure and a hands-off integration test.
+
+---
+
+## Phase 5 - Pre-Prod Infrastructure and E2E Validation
+
+Goal: turn AKS deployment into a single-command, idempotent, TTL-bounded operation backed by Terraform, and prove the system works end-to-end on a freshly provisioned cluster every time.
+
+Phase 4 left AKS deployment as a manual, expert-only path. Phase 5 makes it a repeatable engineering motion: an engineer (or a scheduled CI run) provisions a fresh cluster, deploys Daedalus, runs an e2e test that drives a real task through NATS, asserts the artifact, and tears the cluster down, all without bespoke shell history. The cluster is treated as cattle. The infrastructure code, the deployment glue, and the e2e harness are versioned together.
+
+This phase is scoped strictly to a pre-prod test environment in a single subscription and region. Multi-region, HA, private clusters, and per-PR ephemeral environments are deliberately deferred. The deliverable is confidence: any commit on `main` can be validated against a real AKS deployment by triggering one workflow.
+
+See [phase5-plan.md](phase5-plan.md) for the detailed sub-task breakdown.
+
+### Scope and Decisions
+
+| Decision | Choice |
+|----------|--------|
+| IaC tool | Terraform with remote state in Azure Storage (state file never committed) |
+| Subscription | `<sub-name-redacted>` (UUID configured per-deployment via `subscription_id` tfvar) |
+| Region | East US |
+| Cluster lifecycle | TTL via resource-group tags (`auto-destroy=true`, `expires-at=<ISO8601>`); 4-hour default |
+| Image registry | GHCR for public/dev images, ACR for the AKS-pull path |
+| Secrets | Workload Identity to Key Vault for `GITHUB_TOKEN` and any future credentials |
+| CI trigger | `workflow_dispatch` only (no per-PR cost) |
+| AKS sizing | 2x `Standard_D2s_v5` system pool, parameterized |
+| Network | Public cluster (no VPN, no private endpoint) |
+| NATS | Helm chart from PR #30 production overlay, ephemeral storage |
+| TF location | `deploy/terraform/` |
+| Cleanup | `scripts/aks-cleanup.sh` driven by a scheduled GHA workflow |
+| Observability | Reuse PR #30 overlay (Prometheus, Grafana, Tempo) |
+
+### 5.1 Terraform Module: AKS + ACR + Key Vault + Workload Identity
+
+A composable Terraform layout under `deploy/terraform/` with submodules for resource group (with TTL tags), AKS, ACR, Key Vault, and a user-assigned managed identity bound via Workload Identity Federation. Remote state lives in an Azure Storage account provisioned by a one-time `bootstrap.sh`. Inputs are parameterized via `*.tfvars`; only `*.tfvars.example` is committed.
+
+### 5.2 Image Build and Publish Workflow
+
+A `workflow_dispatch` GHA workflow that builds proxy, mock-acp, and echo-a2a images, publishes to GHCR, and mirrors the same digests into ACR. Multi-arch (amd64, arm64) and a lightweight vulnerability scan (Trivy) are included. ACR push uses workload-identity-issued OIDC token, no long-lived secrets.
+
+### 5.3 Deployment Automation
+
+`make deploy-aks-test` runs the chain Terraform apply, AKS credential fetch, Helm upgrade install of the Daedalus chart with the production overlay from PR #30, and a readiness wait. The target is reproducible from a clean machine in a bounded number of minutes (target threshold defined in acceptance criteria, no hard wall-clock estimate).
+
+### 5.4 E2E Test Harness
+
+A Go test under `test/e2e/aks/` gated by `//go:build aks_e2e` that publishes an A2A task to NATS on the live cluster, watches AgentTask status transitions, asserts the artifact, and logs end-to-end latency. Invoked via `make test-aks-e2e` reading `aks.env` (mirroring the `smoke.env` pattern). Cleanup behavior is controlled by `KEEP_CLUSTER` for debugging.
+
+### 5.5 TTL Cleanup
+
+`scripts/aks-cleanup.sh` lists resource groups tagged `auto-destroy=true`, parses `expires-at`, and destroys any whose timestamp is in the past. A scheduled GHA workflow (`nightly-cleanup.yml`, every 30 minutes) runs the script with appropriate workload identity. Manual invocation is supported for ad-hoc cleanup.
+
+### 5.6 Documentation and Runbook
+
+Extends `docs/aks-deployment.md` and `docs/runbook.md` with the new IaC path, the bootstrap procedure, the TTL contract, secret rotation, and a troubleshooting section. The existing manual instructions are preserved as a fallback but marked as superseded.
+
+### Acceptance Criteria
+
+- An engineer with subscription access and `az`, `terraform`, `kubectl`, `helm`, and `make` installed can run `make deploy-aks-test` from a clean clone and reach a fully functional Daedalus on AKS in under 25 minutes
+- `make test-aks-e2e` against that cluster publishes a task to NATS, observes the agent execute, and asserts the artifact within the test timeout
+- `terraform destroy` (or the TTL cleanup) leaves zero residual Azure resources tagged `auto-destroy=true` past their `expires-at`
+- No state file, no `.tfvars` with real values, and no secrets are committed
+- The `workflow_dispatch` workflow runs the same path end-to-end in CI and passes
+- `docs/phase5-plan.md` and the updated `docs/aks-deployment.md` are sufficient for a new engineer to bootstrap a backend, plan, apply, deploy, and tear down without tribal knowledge
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|------|-----------|
+| Cost overrun from forgotten clusters | TTL tags + scheduled cleanup workflow; alerting on stale RGs |
+| Secret exposure (GITHUB_TOKEN in cluster) | Workload Identity to Key Vault, no static secrets in Helm values or env |
+| State file leakage | Remote state in Azure Storage with RBAC; `*.tfstate*` and real `*.tfvars` gitignored |
+| Bootstrap chicken-and-egg (state backend before TF) | One-time `bootstrap.sh` documented and idempotent |
+| ACR/GHCR drift | Single workflow pushes both, same digest, with provenance |
+| AKS provisioning flakes | Retry policy in `make deploy-aks-test`; clear failure surface in CI logs |
+| TTL race during active work | `KEEP_CLUSTER=1` opt-out; cleanup script is dry-run-able |
+
+### Non-Goals
+
+- Multi-region or multi-cluster topologies
+- High availability (single system nodepool is acceptable)
+- Private cluster, VPN, or hub-and-spoke networking
+- Per-PR ephemeral environments
+- NATS persistence across cluster recreation
+- Production hardening (PSP/PSA tightening, network policies beyond defaults)
+- New observability stack work (PR #30 overlay is reused as-is)
+
+---
+
 ## Deferred (Pending Validation)
 
 These items are tracked in the [risk register](../research/hybrid-comms-architecture.md#open-questions-and-risk-register) and will be promoted when their prerequisites are met:

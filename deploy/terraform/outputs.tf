@@ -1,35 +1,60 @@
 output "resource_group_name" {
-  description = "Name of the Azure Resource Group"
-  value       = azurerm_resource_group.main.name
+  description = "Name of the resource group containing all Phase 5 resources."
+  value       = module.rg.name
 }
 
-output "cluster_name" {
-  description = "Name of the AKS cluster"
-  value       = azurerm_kubernetes_cluster.main.name
+output "aks_name" {
+  description = "AKS cluster name."
+  value       = module.aks.name
 }
 
-output "get_credentials_command" {
-  description = "Command to fetch AKS kubeconfig"
-  value       = "az aks get-credentials --resource-group ${azurerm_resource_group.main.name} --name ${azurerm_kubernetes_cluster.main.name}"
+output "aks_resource_group" {
+  description = "AKS cluster's resource group name (alias of resource_group_name)."
+  value       = module.rg.name
+}
+
+output "kubeconfig" {
+  description = "Raw kubeconfig for the AKS cluster. Stream to a file: terraform output -raw kubeconfig > kubeconfig."
+  value       = module.aks.kube_config_raw
+  sensitive   = true
+}
+
+output "oidc_issuer_url" {
+  description = "AKS OIDC issuer URL."
+  value       = module.aks.oidc_issuer_url
 }
 
 output "acr_login_server" {
-  description = "ACR login server hostname"
-  value       = azurerm_container_registry.main.login_server
+  description = "ACR login server hostname (e.g. acrdaedalustest.azurecr.io)."
+  value       = module.acr.login_server
 }
 
 output "acr_name" {
-  description = "Name of the Azure Container Registry"
-  value       = azurerm_container_registry.main.name
+  description = "ACR name."
+  value       = module.acr.name
 }
 
-output "acr_push_command" {
-  description = "Example command to push a Docker image to the ACR"
-  value       = "az acr login --name ${azurerm_container_registry.main.name} && docker push ${azurerm_container_registry.main.login_server}/daedalus-proxy:latest"
+output "keyvault_uri" {
+  description = "Key Vault URI."
+  value       = module.keyvault.uri
 }
 
-output "kube_config" {
-  description = "Raw kubeconfig for the AKS cluster"
-  value       = azurerm_kubernetes_cluster.main.kube_config_raw
-  sensitive   = true
+output "keyvault_name" {
+  description = "Key Vault name."
+  value       = module.keyvault.name
+}
+
+output "workload_identity_client_id" {
+  description = "Client ID of the workload identity. Annotate K8s ServiceAccount with azure.workload.identity/client-id=<this>."
+  value       = module.identity.client_id
+}
+
+output "workload_identity_object_id" {
+  description = "Object ID of the workload identity."
+  value       = module.identity.principal_id
+}
+
+output "expires_at" {
+  description = "ISO 8601 timestamp at which the cleanup workflow considers this RG eligible for deletion."
+  value       = local.expires_at
 }
