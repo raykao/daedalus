@@ -25,7 +25,7 @@ variable "node_count" {
 }
 
 variable "node_vm_size" {
-  description = "Default node pool VM size. Must support an ephemeral OS disk of >= 75 GiB. D-series v3+ at D2/D4 sizes all qualify."
+  description = "Default node pool VM size. D-series D2/D4 test SKUs with 75 GB managed OS disk."
   type        = string
 }
 

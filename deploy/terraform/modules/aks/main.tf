@@ -17,7 +17,7 @@ resource "azurerm_kubernetes_cluster" "this" {
     vm_size                     = var.node_vm_size
     node_count                  = var.node_count
     os_disk_size_gb             = 75
-    os_disk_type                = "Ephemeral"
+    os_disk_type                = "Managed" # Ephemeral not supported on v4/v5 SKUs (no cache disk)
     temporary_name_for_rotation = "tmpsys"
   }
 
