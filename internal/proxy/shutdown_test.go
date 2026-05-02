@@ -102,7 +102,7 @@ func (s *slowACPServer) handleConn(conn net.Conn) {
 			switch r.Method {
 			case "initialize":
 				result := acp.InitializeResult{
-					ProtocolVersion: "2025-01-01",
+					ProtocolVersion: 1,
 					Capabilities:    acp.ServerCapabilities{Streaming: true},
 					ServerInfo:      acp.ServerInfo{Name: "slow-mock", Version: "1.0.0"},
 				}

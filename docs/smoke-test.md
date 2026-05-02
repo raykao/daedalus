@@ -20,20 +20,53 @@ produce valid A2A Task results.
 
 - **Docker and Docker Compose** (v2+ with `docker compose` syntax)
 - **Go 1.25+** (for the Go smoke test)
-- **`GITHUB_TOKEN`** with GitHub Copilot access (PAT or fine-grained token)
+- **`GITHUB_TOKEN`** with GitHub Copilot access (fine-grained PAT with "Copilot Requests: read" permission).
+  Store in `smoke.env` at the repo root (gitignored) - see [Credentials Setup](#credentials-setup) below.
 - **Available ports:**
   - `4222` - NATS client connections
   - `8222` - NATS monitoring HTTP
   - `3000` - Copilot CLI ACP listener
 
+## Credentials Setup
+
+The smoke test requires a GitHub fine-grained PAT with **Copilot Requests: read** permission.
+
+1. Generate a token at <https://github.com/settings/tokens?type=beta>
+   - Select **Copilot** > **Requests** > **Read-only**
+2. Add your token to `smoke.env` at the repo root (this file is gitignored):
+
+   ```
+   GITHUB_TOKEN=github_pat_...your-token-here...
+   ```
+
+3. The `make test-smoke` target auto-sources `smoke.env` if `GITHUB_TOKEN` is not already set in the environment. You can also export it manually:
+
+   ```bash
+   export GITHUB_TOKEN=github_pat_...
+   make test-smoke
+   ```
+
+> **Security**: `smoke.env` is listed in `.gitignore` and must never be committed. Do not add it to `.env` files that are tracked by git.
+
 ## Quick Start
+
+```bash
+# Option A: use smoke.env (recommended)
+# Copy smoke.env.example to smoke.env and fill in GITHUB_TOKEN
+cp smoke.env.example smoke.env
+# Edit smoke.env and set GITHUB_TOKEN=<your-token>
+make test-smoke
+
+# Option B: set env var directly
+GITHUB_TOKEN=<your-token> make test-smoke
+```
 
 ### Using the validation script (bash)
 
 The bash script is a standalone validator with timing instrumentation:
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
+# Set GITHUB_TOKEN in smoke.env or environment, then:
 ./test/scripts/validate-copilot-cli.sh
 ```
 
@@ -46,14 +79,12 @@ The Go test provides structured assertions, parallel-safe task IDs, and
 detailed latency measurement:
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
 make test-smoke
 ```
 
-Or directly with `go test`:
+Or directly with `go test` (requires `GITHUB_TOKEN` in env):
 
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
 go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s
 ```
 
@@ -89,34 +120,28 @@ The smoke test validates each stage of the pipeline:
 
 ## Expected Latencies
 
-| Phase | Expected Range | Notes |
-|-------|---------------|-------|
-| Stack startup | 10-30s | Image pulls on first run |
-| Service health | 15-45s | Copilot CLI ACP listener startup |
-| Task round-trip | 10-60s | Depends on prompt complexity and model |
-| Total wall time | 60-180s | First run slower due to image builds |
+Measured against `@github/copilot@1.0.36` with the `auto` model (Claude Sonnet 4.6),
+running in Docker on an Azure VM, 2025-05-01:
 
-The validation script prints a detailed timing breakdown:
-
-```
-=== Latency Summary ===
-Image build:        12.345s
-Stack startup:      3.210s
-Health ready:       28.456s
-Stream creation:    1.234s
-Task round-trip:    15.678s  (publish -> result)
-Total wall time:    60.923s
-```
+| Phase | Measured | Notes |
+|-------|----------|-------|
+| Publish -> First Status | ~1ms | Proxy picks up task almost instantly |
+| First Status -> Complete | ~53s | Includes ACP round-trips and model inference |
+| Total Round-Trip | ~53s | publish to final result on NATS |
 
 The Go test logs per-step latency:
 
 ```
 === Smoke Test Latency ===
-Publish -> First Status:  1234ms
-First Status -> Complete: 14567ms
-Total Round-Trip:         15801ms
+Publish -> First Status:  1ms
+First Status -> Complete: 53148ms
+Total Round-Trip:         53150ms
 Status Transitions: [working completed]
 ```
+
+Latency varies with model response time and whether the agent uses tools
+(file creation prompts trigger one or more `session/request_permission` round-trips
+before the model responds, adding 5-15s per tool call).
 
 ## Interpreting Results
 

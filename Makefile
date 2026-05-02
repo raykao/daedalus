@@ -37,8 +37,17 @@ test-integration:
 
 test-smoke:
 	@echo "Requires GITHUB_TOKEN with Copilot access"
-	@test -n "$$GITHUB_TOKEN" || { echo "ERROR: GITHUB_TOKEN not set"; exit 1; }
-	go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s
+	@if [ -z "$$GITHUB_TOKEN" ] && [ -f smoke.env ]; then \
+		echo "Loading credentials from smoke.env..."; \
+		set -a && . ./smoke.env && set +a && \
+		test -n "$$GITHUB_TOKEN" || { echo "ERROR: GITHUB_TOKEN not set in smoke.env"; exit 1; } && \
+		go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s; \
+	elif [ -n "$$GITHUB_TOKEN" ]; then \
+		go test ./test/integration/... -tags=smoke -v -count=1 -timeout=600s; \
+	else \
+		echo "ERROR: GITHUB_TOKEN not set. Set it in the environment or copy smoke.env.example to smoke.env and fill in your token."; \
+		exit 1; \
+	fi
 
 # ---------------------------------------------------------------------------
 # AKS Helm deployment targets

@@ -36,9 +36,15 @@ func (r *Response) IsNotification() bool {
 	return r.ID == nil && r.Method != ""
 }
 
+// IsServerRequest returns true if the message is a server-to-client request
+// (has both a method and a non-nil ID). These require a JSON-RPC response.
+func (r *Response) IsServerRequest() bool {
+	return r.Method != "" && r.ID != nil
+}
+
 // InitializeParams for the initialize method
 type InitializeParams struct {
-	ProtocolVersion string             `json:"protocolVersion"`
+	ProtocolVersion int                `json:"protocolVersion"`
 	Capabilities    ClientCapabilities `json:"capabilities"`
 	ClientInfo      ClientInfo         `json:"clientInfo"`
 }
@@ -56,7 +62,7 @@ type ClientInfo struct {
 
 // InitializeResult from the initialize method
 type InitializeResult struct {
-	ProtocolVersion string             `json:"protocolVersion"`
+	ProtocolVersion int                `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
 	ServerInfo      ServerInfo         `json:"serverInfo"`
 }
@@ -75,7 +81,7 @@ type ServerInfo struct {
 
 // SessionNewParams for session/new
 type SessionNewParams struct {
-	WorkDir    string        `json:"workDir"`
+	WorkDir    string        `json:"cwd"`
 	MCPServers []interface{} `json:"mcpServers"`
 }
 
@@ -84,10 +90,16 @@ type SessionNewResult struct {
 	SessionID string `json:"sessionId"`
 }
 
+// PromptPart is a single content part in a session/prompt request
+type PromptPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 // SessionPromptParams for session/prompt
 type SessionPromptParams struct {
-	SessionID string `json:"sessionId"`
-	Prompt    string `json:"prompt"`
+	SessionID string       `json:"sessionId"`
+	Prompt    []PromptPart `json:"prompt"`
 }
 
 // SessionPromptResult from session/prompt
@@ -103,18 +115,39 @@ type MessageDeltaParams struct {
 	Content   string `json:"content"`
 }
 
-// PermissionRequestParams from session/request_permission notifications
+// PermissionRequestParams from session/request_permission server requests
 type PermissionRequestParams struct {
-	SessionID string   `json:"sessionId"`
-	Tool      string   `json:"tool"`
-	Args      []string `json:"args"`
-	Reason    string   `json:"reason"`
+	SessionID string          `json:"sessionId"`
+	ToolCall  json.RawMessage `json:"toolCall,omitempty"`
+	Options   json.RawMessage `json:"options,omitempty"`
 }
 
-// PermissionResponseParams for approving a permission request
-type PermissionResponseParams struct {
-	SessionID string `json:"sessionId"`
-	Approved  bool   `json:"approved"`
+// PermissionApprovalResult is the JSON-RPC result for session/request_permission
+type PermissionApprovalResult struct {
+	Outcome PermissionOutcome `json:"outcome"`
+}
+
+// PermissionOutcome contains the selected option
+type PermissionOutcome struct {
+	OptionID string `json:"optionId"`
+}
+
+// SessionUpdateParams from session/update notifications
+type SessionUpdateParams struct {
+	SessionID string            `json:"sessionId"`
+	Update    SessionUpdateBody `json:"update"`
+}
+
+// SessionUpdateBody is the update content within a session/update notification
+type SessionUpdateBody struct {
+	SessionUpdate string               `json:"sessionUpdate"` // "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"
+	Content       SessionUpdateContent `json:"content,omitempty"`
+}
+
+// SessionUpdateContent is the text content of a session update
+type SessionUpdateContent struct {
+	Type string `json:"type,omitempty"` // "text"
+	Text string `json:"text,omitempty"`
 }
 
 // SessionCancelParams for session/cancel

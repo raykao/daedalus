@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-01
+
 ### Changed
 
 - Renamed project from Agent Forge to Daedalus to avoid naming collision with unrelated Microsoft project
@@ -31,6 +33,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Makefile targets for AKS Helm deployment: `helm-aks-deploy`, `helm-aks-teardown`, `helm-aks-status`, `helm-aks-logs` (Phase 4.4)
 - `test/scripts/validate-aks-deployment.sh` - validation script for KEDA ScaledJob triggers, scale-to-zero, cold start latency, and SIGTERM graceful shutdown on AKS (Phase 4.4)
 - `docs/aks-deployment.md` - AKS deployment guide with configuration reference and troubleshooting (Phase 4.4)
+
+### Fixed
+
+- `go.mod` requires Go 1.25; update all Dockerfile builder images from `golang:1.24-alpine` to `golang:1.25-alpine`
+- Copilot CLI Docker image: correct npm package from `@github/copilot-cli` (does not exist) to `@github/copilot@1.0.36`
+- NATS box image tag updated from `0.14` (non-existent) to `nats-box:0.19.5`
+- ACP protocol v1 breaking changes in `@github/copilot@1.0.36`: `protocolVersion` is integer `1` (not string), `session/new` uses `cwd` field (not `workDir`), `session/prompt` prompt is an array of content parts
+- Docker networking: Copilot CLI binds ACP listener to loopback only; fix via `network_mode: "service:copilot-cli"` so proxy shares the network namespace
+- ACP client `readLoop` context lifetime: decoupled from caller's connect context (`context.Background()`) to prevent premature goroutine termination
+- ACP `session/request_permission` is a server-to-client JSON-RPC request (not a notification); proxy now sends a proper response `{"outcome":{"optionId":"allow_once"}}` (confirmed from CLI source inspection)
+- ACP content streaming: CLI v1.0.36 sends `session/update` with `sessionUpdate:"agent_message_chunk"` for user-visible text; replaced defunct `assistant.message_delta` handler
+- Unhandled ACP server-to-client requests now send JSON-RPC method-not-found error (-32601) instead of being silently dropped, preventing server-side hangs
+- `smoke.env` credential template renamed to `smoke.env.example` (safe to commit); `smoke.env` remains gitignored to prevent accidental token commits
 
 ## Phase 3 - Pluggable Runtime and Operator
 
