@@ -127,26 +127,31 @@ func ensureStreams() error {
 func waitForNATS(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		nc, err := nats.Connect(natsURL, nats.Timeout(2*time.Second))
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		js, err := jetstream.New(nc)
-		nc.Close()
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err = js.AccountInfo(ctx)
-		cancel()
-		if err == nil {
+		if err := probeNATS(); err == nil {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("NATS not ready after %v", timeout)
+}
+
+// probeNATS performs a single JetStream readiness check. It keeps the NATS
+// connection open through AccountInfo and closes it via defer so that each
+// loop iteration cleans up regardless of outcome.
+func probeNATS() error {
+	nc, err := nats.Connect(natsURL, nats.Timeout(2*time.Second))
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = js.AccountInfo(ctx)
+	return err
 }
 
 // TestEndToEnd_CompletedTask publishes an A2A task to NATS, waits for the proxy
