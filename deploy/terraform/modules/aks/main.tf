@@ -16,7 +16,8 @@ resource "azurerm_kubernetes_cluster" "this" {
     name                        = "system"
     vm_size                     = var.node_vm_size
     node_count                  = var.node_count
-    os_disk_size_gb             = 30
+    os_disk_size_gb             = 75
+    os_disk_type                = "Ephemeral"
     temporary_name_for_rotation = "tmpsys"
   }
 
