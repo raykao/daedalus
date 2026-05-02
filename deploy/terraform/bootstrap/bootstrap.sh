@@ -103,12 +103,29 @@ else
   log "configured versioning + soft-delete on $SA_NAME"
 fi
 
-log "ensuring container $CONTAINER exists"
+log "fetching storage account key for container creation"
+SA_KEY=$(az storage account keys list \
+    --account-name "$SA_NAME" \
+    --resource-group "$RG" \
+    --query '[0].value' -o tsv)
+
+log "ensuring container $CONTAINER exists (using account key for one-time bootstrap)"
 az storage container create \
   --name "$CONTAINER" \
   --account-name "$SA_NAME" \
-  --auth-mode login >/dev/null
+  --account-key "$SA_KEY" >/dev/null
 log "container $CONTAINER ready"
+
+log "granting current user Storage Blob Data Contributor on the storage account"
+CURRENT_USER_OID=$(az ad signed-in-user show --query id -o tsv)
+SA_ID=$(az storage account show -g "$RG" -n "$SA_NAME" --query id -o tsv)
+az role assignment create \
+  --assignee-object-id "$CURRENT_USER_OID" \
+  --assignee-principal-type User \
+  --role "Storage Blob Data Contributor" \
+  --scope "$SA_ID" >/dev/null 2>&1 || \
+  log "role assignment for Storage Blob Data Contributor may already exist (continuing)"
+log "RBAC for daily terraform use is in place (propagation can take a few minutes)"
 
 cat <<EOF
 
