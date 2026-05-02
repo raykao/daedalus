@@ -1,5 +1,6 @@
 .PHONY: test-contract test-conformance test test-integration test-smoke \
-        helm-aks-deploy helm-aks-teardown helm-aks-status helm-aks-logs
+        helm-aks-deploy helm-aks-teardown helm-aks-status helm-aks-logs \
+        deploy-aks-test destroy-aks-test aks-credentials aks-status
 
 # AKS deployment defaults - override on the command line as needed.
 RELEASE_NAME ?= daedalus
@@ -119,3 +120,68 @@ helm-aks-logs: check-aks-context
 	kubectl logs -n $(NAMESPACE) "$$POD" -c proxy --tail=100 --prefix=true & \
 	kubectl logs -n $(NAMESPACE) "$$POD" -c agent --tail=100 --prefix=true & \
 	wait
+
+# ---------------------------------------------------------------------------
+# Phase 5.3: Automated AKS test deployment
+# ---------------------------------------------------------------------------
+# These targets are thin wrappers over deploy/scripts/deploy-aks.sh and
+# deploy/scripts/destroy-aks.sh. The scripts are the source of truth for the
+# deploy/destroy flow; treat the Makefile as the user-facing entrypoint only.
+#
+# Usage:
+#   make deploy-aks-test       # one-command idempotent deploy (~25 min cold)
+#   make destroy-aks-test      # mirror teardown (respects KEEP_CLUSTER=1)
+#   make aks-credentials       # refresh local kubeconfig from terraform state
+#   make aks-status            # cluster + helm + KEDA + Job summary
+
+# deploy-aks-test - run deploy/scripts/deploy-aks.sh end-to-end. Safe to re-run.
+# Honors GITHUB_TOKEN, IMAGE_TAG, RELEASE_NAME, NAMESPACE, KEDA_VERSION env vars.
+deploy-aks-test:
+@./deploy/scripts/deploy-aks.sh
+
+# destroy-aks-test - run deploy/scripts/destroy-aks.sh. Refuses if KEEP_CLUSTER=1.
+destroy-aks-test:
+@./deploy/scripts/destroy-aks.sh
+
+# aks-credentials - reload kubeconfig for the cluster recorded in terraform state.
+# Useful when context was overwritten or the entry expired.
+aks-credentials:
+@RG=$$(terraform -chdir=deploy/terraform output -raw resource_group_name 2>/dev/null); \
+AKS=$$(terraform -chdir=deploy/terraform output -raw aks_name 2>/dev/null); \
+if [ -z "$$RG" ] || [ -z "$$AKS" ]; then \
+    echo "ERROR: terraform state has no resource_group_name / aks_name."; \
+    echo "       Run 'make deploy-aks-test' first or check deploy/terraform/."; \
+    exit 1; \
+fi; \
+echo "Fetching credentials for AKS '$$AKS' in RG '$$RG'..."; \
+az aks get-credentials --resource-group "$$RG" --name "$$AKS" \
+    --overwrite-existing --admin=false
+
+# aks-status - high-level health snapshot: TF outputs, helm release, KEDA, Jobs.
+aks-status:
+@echo "=== Terraform outputs ==="; \
+terraform -chdir=deploy/terraform output 2>/dev/null \
+    | grep -v -i 'kubeconfig\|sensitive' || true
+@echo ""
+@echo "=== Current kube context ==="
+@kubectl config current-context 2>/dev/null || echo "<no context>"
+@echo ""
+@echo "=== Nodes ==="
+@kubectl get nodes -o wide 2>/dev/null || echo "<unreachable>"
+@echo ""
+@echo "=== Helm release ($(RELEASE_NAME) / $(NAMESPACE)) ==="
+@helm status $(RELEASE_NAME) --namespace $(NAMESPACE) 2>/dev/null \
+    || echo "<release not installed>"
+@echo ""
+@echo "=== KEDA operator ==="
+@kubectl get deployment/keda-operator -n keda 2>/dev/null \
+    || echo "<KEDA not installed>"
+@echo ""
+@echo "=== ScaledJobs ==="
+@kubectl get scaledjobs -n $(NAMESPACE) -o wide 2>/dev/null || true
+@echo ""
+@echo "=== Jobs ==="
+@kubectl get jobs -n $(NAMESPACE) -o wide 2>/dev/null || true
+@echo ""
+@echo "=== Pods ==="
+@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null || true
