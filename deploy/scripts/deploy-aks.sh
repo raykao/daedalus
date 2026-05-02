@@ -162,6 +162,12 @@ if [[ -z "${SUBSCRIPTION_ID}" || "${SUBSCRIPTION_ID}" == "00000000-0000-0000-000
     error "subscription_id not set (or still placeholder) in ${TFVARS_FILE}"
     exit 1
 fi
+# Reject anything that isn't a UUID. Without this, an unquoted or otherwise
+# unparseable HCL value falls through and lands in 'az account set' as garbage.
+if ! [[ "${SUBSCRIPTION_ID}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    error "subscription_id in ${TFVARS_FILE} could not be parsed. Expected format: subscription_id = \"<uuid>\""
+    exit 1
+fi
 
 if az account show >/dev/null 2>&1; then
     info "Already signed in to Azure"
@@ -252,6 +258,7 @@ kubectl get nodes >/dev/null
 
 # Wait for at least one Ready node
 DEADLINE=$(( $(date +%s) + 300 ))
+READY=0
 while (( $(date +%s) < DEADLINE )); do
     READY="$(kubectl get nodes --no-headers 2>/dev/null | awk '$2=="Ready"' | wc -l)"
     if (( READY > 0 )); then
@@ -308,7 +315,9 @@ step "Step 8: Installing KEDA ${KEDA_VERSION}"
 if [[ "${SKIP_KEDA}" -eq 1 ]]; then
     warn "SKIP_KEDA=1 - skipping KEDA install"
 else
-    helm repo add kedacore https://kedacore.github.io/charts >/dev/null 2>&1 || true
+    if ! helm repo list -o json 2>/dev/null | jq -e '.[] | select(.name=="kedacore")' >/dev/null; then
+        helm repo add kedacore https://kedacore.github.io/charts >/dev/null
+    fi
     helm repo update kedacore >/dev/null
     helm upgrade --install keda kedacore/keda \
         --namespace keda \
@@ -354,11 +363,12 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
     exit 1
 fi
 
-kubectl create secret generic copilot-secret \
-    --namespace "${NAMESPACE}" \
-    --from-literal=github-token="${GITHUB_TOKEN}" \
-    --dry-run=client -o yaml \
-    | kubectl apply -f - >/dev/null
+printf '%s' "${GITHUB_TOKEN}" \
+  | kubectl create secret generic copilot-secret \
+      --namespace "${NAMESPACE}" \
+      --from-file=github-token=/dev/stdin \
+      --dry-run=client -o yaml \
+  | kubectl apply -f - >/dev/null
 pass "copilot-secret upserted"
 
 # ---------------------------------------------------------------------------

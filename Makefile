@@ -137,51 +137,58 @@ helm-aks-logs: check-aks-context
 # deploy-aks-test - run deploy/scripts/deploy-aks.sh end-to-end. Safe to re-run.
 # Honors GITHUB_TOKEN, IMAGE_TAG, RELEASE_NAME, NAMESPACE, KEDA_VERSION env vars.
 deploy-aks-test:
-@./deploy/scripts/deploy-aks.sh
+	@./deploy/scripts/deploy-aks.sh
 
 # destroy-aks-test - run deploy/scripts/destroy-aks.sh. Refuses if KEEP_CLUSTER=1.
 destroy-aks-test:
-@./deploy/scripts/destroy-aks.sh
+	@./deploy/scripts/destroy-aks.sh
 
 # aks-credentials - reload kubeconfig for the cluster recorded in terraform state.
 # Useful when context was overwritten or the entry expired.
 aks-credentials:
-@RG=$$(terraform -chdir=deploy/terraform output -raw resource_group_name 2>/dev/null); \
-AKS=$$(terraform -chdir=deploy/terraform output -raw aks_name 2>/dev/null); \
-if [ -z "$$RG" ] || [ -z "$$AKS" ]; then \
-    echo "ERROR: terraform state has no resource_group_name / aks_name."; \
-    echo "       Run 'make deploy-aks-test' first or check deploy/terraform/."; \
-    exit 1; \
-fi; \
-echo "Fetching credentials for AKS '$$AKS' in RG '$$RG'..."; \
-az aks get-credentials --resource-group "$$RG" --name "$$AKS" \
-    --overwrite-existing --admin=false
+	@RG=$$(terraform -chdir=deploy/terraform output -raw resource_group_name 2>/dev/null); \
+	AKS=$$(terraform -chdir=deploy/terraform output -raw aks_name 2>/dev/null); \
+	if [ -z "$$RG" ] || [ -z "$$AKS" ]; then \
+	    echo "ERROR: terraform state has no resource_group_name / aks_name."; \
+	    echo "       Run 'make deploy-aks-test' first or check deploy/terraform/."; \
+	    exit 1; \
+	fi; \
+	echo "Fetching credentials for AKS '$$AKS' in RG '$$RG'..."; \
+	az aks get-credentials --resource-group "$$RG" --name "$$AKS" \
+	    --overwrite-existing --admin=false
 
 # aks-status - high-level health snapshot: TF outputs, helm release, KEDA, Jobs.
+# Warns if current kube context does not match the cluster recorded in terraform.
 aks-status:
-@echo "=== Terraform outputs ==="; \
-terraform -chdir=deploy/terraform output 2>/dev/null \
-    | grep -v -i 'kubeconfig\|sensitive' || true
-@echo ""
-@echo "=== Current kube context ==="
-@kubectl config current-context 2>/dev/null || echo "<no context>"
-@echo ""
-@echo "=== Nodes ==="
-@kubectl get nodes -o wide 2>/dev/null || echo "<unreachable>"
-@echo ""
-@echo "=== Helm release ($(RELEASE_NAME) / $(NAMESPACE)) ==="
-@helm status $(RELEASE_NAME) --namespace $(NAMESPACE) 2>/dev/null \
-    || echo "<release not installed>"
-@echo ""
-@echo "=== KEDA operator ==="
-@kubectl get deployment/keda-operator -n keda 2>/dev/null \
-    || echo "<KEDA not installed>"
-@echo ""
-@echo "=== ScaledJobs ==="
-@kubectl get scaledjobs -n $(NAMESPACE) -o wide 2>/dev/null || true
-@echo ""
-@echo "=== Jobs ==="
-@kubectl get jobs -n $(NAMESPACE) -o wide 2>/dev/null || true
-@echo ""
-@echo "=== Pods ==="
-@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null || true
+	@CURRENT_CTX=$$(kubectl config current-context 2>/dev/null || echo "<none>"); \
+	EXPECTED=$$(terraform -chdir=deploy/terraform output -raw aks_name 2>/dev/null || echo ""); \
+	if [ -n "$$EXPECTED" ] && [ "$$CURRENT_CTX" != "$$EXPECTED" ]; then \
+	    echo "WARNING: kube context '$$CURRENT_CTX' != terraform aks_name '$$EXPECTED'."; \
+	    echo "         Run 'make aks-credentials' to realign before trusting this status."; \
+	fi
+	@echo "=== Terraform outputs ==="; \
+	terraform -chdir=deploy/terraform output 2>/dev/null \
+	    | grep -v -i 'kubeconfig\|sensitive' || true
+	@echo ""
+	@echo "=== Current kube context ==="
+	@kubectl config current-context 2>/dev/null || echo "<no context>"
+	@echo ""
+	@echo "=== Nodes ==="
+	@kubectl get nodes -o wide 2>/dev/null || echo "<unreachable>"
+	@echo ""
+	@echo "=== Helm release ($(RELEASE_NAME) / $(NAMESPACE)) ==="
+	@helm status $(RELEASE_NAME) --namespace $(NAMESPACE) 2>/dev/null \
+	    || echo "<release not installed>"
+	@echo ""
+	@echo "=== KEDA operator ==="
+	@kubectl get deployment/keda-operator -n keda 2>/dev/null \
+	    || echo "<KEDA not installed>"
+	@echo ""
+	@echo "=== ScaledJobs ==="
+	@kubectl get scaledjobs -n $(NAMESPACE) -o wide 2>/dev/null || true
+	@echo ""
+	@echo "=== Jobs ==="
+	@kubectl get jobs -n $(NAMESPACE) -o wide 2>/dev/null || true
+	@echo ""
+	@echo "=== Pods ==="
+	@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null || true
