@@ -52,14 +52,38 @@ const (
 // conn wraps a network connection with a mutex-protected writer.
 type conn struct {
 	net.Conn
-	mu      sync.Mutex
-	enc     *json.Encoder
-	nextID  atomic.Int64
-	pending sync.Map // map[int64]chan *Response
+	mu        sync.Mutex
+	enc       *json.Encoder
+	nextID    atomic.Int64
+	pending   sync.Map // map[int64]chan *Response
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func newConn(c net.Conn) *conn {
-	return &conn{Conn: c, enc: json.NewEncoder(c)}
+	return &conn{Conn: c, enc: json.NewEncoder(c), done: make(chan struct{})}
+}
+
+// Close tears down the connection, signalling any goroutines blocked in
+// WriteRequestAwaitResponse so they don't sit on the 30s timeout. Idempotent.
+func (c *conn) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		// Best-effort: wake any pending awaiters with a synthetic error
+		// response. The non-blocking send is safe because each pending
+		// channel has capacity 1 and only one consumer.
+		c.pending.Range(func(k, v any) bool {
+			if ch, ok := v.(chan *Response); ok {
+				select {
+				case ch <- &Response{JSONRPC: "2.0", Error: &RPCError{Code: ErrInternal, Message: "connection closed"}}:
+				default:
+				}
+			}
+			c.pending.Delete(k)
+			return true
+		})
+	})
+	return c.Conn.Close()
 }
 
 // allocRequestID returns the next outgoing server-to-client request ID.
@@ -126,6 +150,8 @@ func (c *conn) WriteRequestAwaitResponse(ctx context.Context, method string, par
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-c.done:
+		return nil, errors.New("connection closed")
 	case <-timeoutCh:
 		return nil, fmt.Errorf("timeout waiting for response to %s", method)
 	case resp := <-ch:
