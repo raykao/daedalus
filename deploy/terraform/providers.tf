@@ -19,8 +19,6 @@ provider "azurerm" {
   }
 }
 
-provider "azuread" {}
-
 # Surfaces the deployer's tenant + object_id so we can grant them KV Secrets
 # Officer for out-of-band secret writes.
 data "azurerm_client_config" "current" {}

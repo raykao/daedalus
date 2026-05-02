@@ -9,7 +9,7 @@ region, with a 4-hour TTL enforced by tags + the Phase 5.5 cleanup workflow.
 deploy/terraform/
   versions.tf      # provider/version pins
   backend.tf       # commented-out azurerm backend template
-  providers.tf     # azurerm + azuread + data.azurerm_client_config.current
+  providers.tf     # azurerm + data.azurerm_client_config.current
   variables.tf     # inputs with validation
   locals.tf        # naming, tag composition (incl. expires-at)
   main.tf          # module composition
