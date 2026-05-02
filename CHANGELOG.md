@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `mock-acp-server` now speaks ACP protocol v1 to match `internal/acp/client.go` and the real `@github/copilot@1.0.36`:
+  - `protocolVersion`: integer `1` (was string `"2025-01-01"`)
+  - `session/new` field renamed to `cwd` (was `workDir`)
+  - `session/prompt.prompt` is an array of `{type, text}` content parts (was string)
+  - Streaming notification: `session/update` with `sessionUpdate: agent_message_chunk` (was `assistant.message_delta`)
+  - `session/request_permission` is now a JSON-RPC request awaiting `{outcome:{optionId:"allow_once"}}` (was a fire-and-forget notification); the mock validates the returned `optionId` and rejects deny/empty/malformed responses
+
+### Added
+
+- `*conn.WriteRequestAwaitResponse` and bidirectional request/response support in `mock-acp-server` to model the v1 permission flow.
+- Unit tests covering the permission flow (`TestPermissionRequest` asserts the request shape; `TestPermissionDenied` asserts deny path; `TestConn_WriteRequestAwaitResponse_UnblocksOnClose` asserts disconnect cleanup).
+
+### Fixed
+
+- `waitForNATS` use-after-close bug: `nc.Close()` was called before `js.AccountInfo(ctx)` so the readiness probe always failed and `TestEndToEnd_CompletedTask` timed out at the 60s deadline. Refactored into a `probeNATS()` helper with `defer nc.Close()`.
+- `OrderedConsumer` late-bind race in `compose_test.go::TestEndToEnd_CompletedTask`: a fast `working` status update could arrive before the consumer was server-side bound, causing a flaky failure. Switched to `CreateOrUpdateConsumer` with `DeliverByStartTimePolicy` so the start point is set before the publish.
+- Goroutine leak when a client disconnects mid-permission-roundtrip: pending awaiters now wake immediately on `*conn.Close()` via a per-conn `done` channel, instead of waiting for the 30s `WriteRequestAwaitResponse` timeout.
+
 ## [0.2.0] - 2026-05-01
 
 ### Changed
