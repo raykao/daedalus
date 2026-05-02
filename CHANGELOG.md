@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Replaced monolithic deploy/terraform/*.tf (Phase 4) with modular Phase 5 layout
 - `mock-acp-server` now speaks ACP protocol v1 to match `internal/acp/client.go` and the real `@github/copilot@1.0.36`:
   - `protocolVersion`: integer `1` (was string `"2025-01-01"`)
   - `session/new` field renamed to `cwd` (was `workDir`)
@@ -17,11 +18,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Phase 5 planning: docs/plan.md updated with Phase 5 section, docs/phase5-plan.md detailed sub-task breakdown, docs/phase5-epic-draft.md issue body template
+- Phase 5.1 Terraform module under deploy/terraform/ for AKS + ACR + Key Vault + Workload Identity + RG with TTL tags
+  - Modular layout: modules/{rg,aks,acr,keyvault,identity}
+  - Bootstrap script (deploy/terraform/bootstrap/bootstrap.sh) for one-time remote-state storage account creation
+  - Example tfvars (deploy/terraform/envs/test.tfvars.example), README, and bootstrap docs
+  - 4-hour TTL via auto-destroy + expires-at tags (cleanup script comes in Phase 5.5)
+- AKS configuration:
+  - OIDC issuer + Workload Identity enabled
+  - Federated credential pre-bound to system:serviceaccount:daedalus:daedalus-proxy
+  - Default 2x Standard_D2s_v5 system pool, 75 GB managed OS disk
+  - upgrade_settings { max_surge = "1" } for predictable upgrade behavior
+- ACR Standard SKU with AcrPull role auto-granted to AKS kubelet identity
+- Key Vault with RBAC authorization, Secrets User role for the workload identity, Secrets Officer for the deployer
+- Resource group with TTL tags (auto-destroy=true, expires-at=ISO8601) for downstream cleanup tooling
 - `*conn.WriteRequestAwaitResponse` and bidirectional request/response support in `mock-acp-server` to model the v1 permission flow.
 - Unit tests covering the permission flow (`TestPermissionRequest` asserts the request shape; `TestPermissionDenied` asserts deny path; `TestConn_WriteRequestAwaitResponse_UnblocksOnClose` asserts disconnect cleanup).
 
 ### Fixed
 
+- (Phase 5.1 review fixes, all in implementation commits before merge): KV name truncation now preserves uniqueness suffix; ACR has deterministic global-uniqueness suffix; bootstrap script uses account-key auth and grants required RBAC; node_vm_size validated against D-series allowlist; OS disk type set to Managed (Ephemeral incompatible with Dsv4/Dsv5 cache-less SKUs)
 - `waitForNATS` use-after-close bug: `nc.Close()` was called before `js.AccountInfo(ctx)` so the readiness probe always failed and `TestEndToEnd_CompletedTask` timed out at the 60s deadline. Refactored into a `probeNATS()` helper with `defer nc.Close()`.
 - `OrderedConsumer` late-bind race in `compose_test.go::TestEndToEnd_CompletedTask`: a fast `working` status update could arrive before the consumer was server-side bound, causing a flaky failure. Switched to `CreateOrUpdateConsumer` with `DeliverByStartTimePolicy` so the start point is set before the publish.
 - Goroutine leak when a client disconnects mid-permission-roundtrip: pending awaiters now wake immediately on `*conn.Close()` via a per-conn `done` channel, instead of waiting for the 30s `WriteRequestAwaitResponse` timeout.
