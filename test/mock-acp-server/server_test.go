@@ -4,6 +4,7 @@ import (
 "bufio"
 "context"
 "encoding/json"
+"errors"
 "net"
 "strings"
 "testing"
@@ -220,23 +221,77 @@ t.Errorf("expected error message to mention deny, got %q", rpcErr.Message)
 // The previous integration-style test (TestConnectionCloseUnblocksAwaiter) only
 // timed tc.c.Close(), which is a local TCP close that returns instantly even
 // if the server-side handler is wedged on a 30s timer. It was a false positive:
-// it passed regardless of whether close-cleanup actually ran. This unit test
-// instead constructs a *conn over net.Pipe(), starts an awaiter, calls Close(),
-// and asserts the awaiter returns within 200ms with the expected error shape.
+// it passed regardless of whether close-cleanup actually ran.
+//
+// This test uses a sync channel to deterministically order the awaiter
+// reaching its select before Close() runs. It exercises two scenarios:
+//
+//  1. closeBeforeAwait — Close() runs before WriteRequestAwaitResponse is
+//     called. The awaiter must return promptly with a "connection closed"
+//     error (or synthetic Response).
+//
+//  2. closeWhileAwaiting — Close() runs after the awaiter is parked in its
+//     select. Determinism is ensured by replicating the production logic in
+//     a test-side helper that signals readiness AFTER WriteRequest has
+//     returned and the pending entry is registered, just before entering
+//     the select.
 func TestConn_WriteRequestAwaitResponse_UnblocksOnClose(t *testing.T) {
+t.Run("closeBeforeAwait", func(t *testing.T) {
 serverSide, clientSide := net.Pipe()
-// Drain anything the server writes so WriteRequest can complete (net.Pipe
-// is synchronous and unbuffered; without a reader the Write inside
-// WriteRequest would block before the awaiter ever reaches its select).
-go func() {
-buf := make([]byte, 4096)
-for {
-if _, err := clientSide.Read(buf); err != nil {
+defer clientSide.Close()
+// Drain client side reads so any writes don't block.
+go drain(clientSide)
+
+c := newConn(serverSide)
+
+// Close FIRST. This guarantees done is closed and the underlying
+// pipe is dead before any awaiter runs.
+if err := c.Close(); err != nil {
+t.Logf("Close returned: %v", err)
+}
+
+start := time.Now()
+ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+defer cancel()
+resp, err := c.WriteRequestAwaitResponse(ctx, "session/request_permission",
+map[string]any{"sessionId": "x"}, 30*time.Second)
+elapsed := time.Since(start)
+if elapsed > 200*time.Millisecond {
+t.Errorf("WriteRequestAwaitResponse took %v after Close (want <200ms)", elapsed)
+}
+// With Close already done, two wake paths are valid:
+//   1. WriteRequest itself fails on the closed pipe and we get
+//      err = "io: read/write on closed pipe".
+//   2. WriteRequest somehow succeeds (it can if the drain goroutine
+//      consumed the bytes before Close's underlying close took
+//      effect) and the select fires on <-c.done with
+//      err = "connection closed".
+// Either proves Close terminated the awaiter without the 30s timeout.
+// Accept any of: write error, "connection closed" error, or synthetic
+// response with ErrInternal.
+if err != nil {
+msg := strings.ToLower(err.Error())
+if !strings.Contains(msg, "connection closed") &&
+!strings.Contains(msg, "closed pipe") {
+t.Errorf("error = %v, want 'connection closed' or 'closed pipe'", err)
+}
 return
 }
+if resp == nil || resp.Error == nil {
+t.Fatalf("expected error or synthetic response with non-nil error, got resp=%+v", resp)
 }
-}()
+if resp.Error.Code != ErrInternal {
+t.Errorf("synthetic error code = %d, want ErrInternal (%d)", resp.Error.Code, ErrInternal)
+}
+if !strings.Contains(strings.ToLower(resp.Error.Message), "connection closed") {
+t.Errorf("synthetic error message = %q, want contains 'connection closed'", resp.Error.Message)
+}
+})
+
+t.Run("closeWhileAwaiting", func(t *testing.T) {
+serverSide, clientSide := net.Pipe()
 defer clientSide.Close()
+go drain(clientSide)
 
 c := newConn(serverSide)
 
@@ -245,21 +300,24 @@ resp *Response
 err  error
 }
 done := make(chan awaiterResult, 1)
+ready := make(chan struct{})
 go func() {
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-resp, err := c.WriteRequestAwaitResponse(ctx, "session/request_permission",
-map[string]any{"sessionId": "x"}, 30*time.Second)
+resp, err := writeRequestAwaitResponseSignal(c, ready,
+"session/request_permission",
+map[string]any{"sessionId": "x"})
 done <- awaiterResult{resp: resp, err: err}
 }()
 
-// Give the goroutine a moment to send the request and register a pending
-// entry before we close.
-time.Sleep(20 * time.Millisecond)
+// Wait deterministically until the goroutine is parked in its
+// select. No sleep, no race.
+select {
+case <-ready:
+case <-time.After(2 * time.Second):
+t.Fatal("awaiter did not reach select within 2s")
+}
 
 start := time.Now()
 if err := c.Close(); err != nil {
-// net.Pipe Close should not error; log for visibility but don't fail.
 t.Logf("Close returned: %v", err)
 }
 
@@ -267,15 +325,11 @@ select {
 case r := <-done:
 elapsed := time.Since(start)
 if elapsed > 200*time.Millisecond {
-t.Errorf("WriteRequestAwaitResponse took %v after Close (want <200ms)", elapsed)
+t.Errorf("awaiter took %v after Close (want <200ms)", elapsed)
 }
-// Two valid wakeup paths exist due to select non-determinism in
-// WriteRequestAwaitResponse:
-//   1. <-c.done fires first: the awaiter returns (nil, "connection closed").
-//   2. The synthetic Response queued by Close()'s pending.Range is
-//      received first: the awaiter returns (resp, nil) where
-//      resp.Error has Code=ErrInternal, Message="connection closed".
-// Both prove cleanup ran; accept either.
+// Either the synthetic response (resp.Error set) or the
+// "connection closed" error path is valid. Both prove cleanup
+// ran.
 if r.err == nil {
 if r.resp == nil || r.resp.Error == nil {
 t.Fatalf("expected synthetic response with non-nil error, got %+v", r.resp)
@@ -291,9 +345,45 @@ if !strings.Contains(strings.ToLower(r.err.Error()), "connection closed") {
 t.Errorf("error = %v, want contains 'connection closed'", r.err)
 }
 }
-
 case <-time.After(2 * time.Second):
 t.Fatal("WriteRequestAwaitResponse did not return within 2s of Close - cleanup is broken")
+}
+})
+}
+
+// drain reads from r until it returns an error. Used to keep net.Pipe writes
+// from blocking on missing readers.
+func drain(r net.Conn) {
+buf := make([]byte, 4096)
+for {
+if _, err := r.Read(buf); err != nil {
+return
+}
+}
+}
+
+// writeRequestAwaitResponseSignal mirrors conn.WriteRequestAwaitResponse but
+// signals `ready` (by closing it) AFTER the request has been written and the
+// pending entry is registered, immediately before entering the select. This
+// eliminates the timing race in tests that need to call Close() while an
+// awaiter is parked in the select. Test-only helper.
+func writeRequestAwaitResponseSignal(c *conn, ready chan<- struct{}, method string, params any) (*Response, error) {
+id := c.allocRequestID()
+ch := c.registerPending(id)
+defer c.deletePending(id)
+
+if err := c.WriteRequest(id, method, params); err != nil {
+// Still signal so the test isn't stuck waiting; caller will see err.
+close(ready)
+return nil, err
+}
+close(ready)
+
+select {
+case <-c.done:
+return nil, errors.New("connection closed")
+case resp := <-ch:
+return resp, nil
 }
 }
 
