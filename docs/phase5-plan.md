@@ -12,7 +12,7 @@ These are settled. The implementation branches do not re-litigate them.
 
 | Item | Value |
 |------|-------|
-| Subscription | `<sub-name-redacted>` (`00000000-0000-0000-0000-000000000000`) |
+| Subscription | `<sub-name-redacted>` (UUID configured per-deployment via `subscription_id` tfvar) |
 | Region | `eastus` |
 | IaC | Terraform, remote state in Azure Storage, no state in git |
 | Cluster TTL | 4 hours via RG tags `auto-destroy=true`, `expires-at=<ISO8601>` |

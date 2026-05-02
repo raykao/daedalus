@@ -24,7 +24,7 @@ These are settled. Sub-tasks do not re-litigate.
 | Decision | Choice |
 |----------|--------|
 | IaC tool | Terraform with remote state in Azure Storage; state file never committed |
-| Subscription | `<sub-name-redacted>` (`00000000-0000-0000-0000-000000000000`) |
+| Subscription | `<sub-name-redacted>` (UUID configured per-deployment via `subscription_id` tfvar) |
 | Region | East US |
 | Cluster lifecycle | TTL via RG tags `auto-destroy=true`, `expires-at=<ISO8601>`; 4 hour default |
 | Image registry | GHCR (public/dev) and ACR (AKS-pull) |
@@ -66,7 +66,7 @@ These are settled. Sub-tasks do not re-litigate.
 ## Dependencies
 
 - Phase 4 (v0.2.0) - the Helm chart, production overlay (PR #30), and deployment runbook are the foundation
-- Azure subscription access in `<sub-name-redacted>`
+- Azure subscription access in the target Azure subscription (configured per-deployment)
 - GitHub repository admin access to configure workflow identities and OIDC federated credentials
 
 ## Risks

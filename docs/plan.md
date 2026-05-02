@@ -339,7 +339,7 @@ See [phase5-plan.md](phase5-plan.md) for the detailed sub-task breakdown.
 | Decision | Choice |
 |----------|--------|
 | IaC tool | Terraform with remote state in Azure Storage (state file never committed) |
-| Subscription | `<sub-name-redacted>` (`00000000-0000-0000-0000-000000000000`) |
+| Subscription | `<sub-name-redacted>` (UUID configured per-deployment via `subscription_id` tfvar) |
 | Region | East US |
 | Cluster lifecycle | TTL via resource-group tags (`auto-destroy=true`, `expires-at=<ISO8601>`); 4-hour default |
 | Image registry | GHCR for public/dev images, ACR for the AKS-pull path |
