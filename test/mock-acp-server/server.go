@@ -104,14 +104,23 @@ func (c *conn) deletePending(id int64) {
 }
 
 // resolvePending delivers a response to the registered channel, if any.
+// Uses a non-blocking send for symmetry with Close(): the pending channel has
+// capacity 1 and exactly one consumer, so a full channel means another writer
+// (e.g. Close()'s synthetic-error fill) already delivered. Returns true if the
+// response was delivered, false if no pending entry exists or the channel was
+// already full. Callers may discard the bool; it is fire-and-forget.
 func (c *conn) resolvePending(id int64, resp *Response) bool {
-	if ch, ok := c.pending.LoadAndDelete(id); ok {
-		if replyCh, ok := ch.(chan *Response); ok {
-			replyCh <- resp
-			return true
-		}
-	}
-	return false
+if ch, ok := c.pending.LoadAndDelete(id); ok {
+if replyCh, ok := ch.(chan *Response); ok {
+select {
+case replyCh <- resp:
+return true
+default:
+return false
+}
+}
+}
+return false
 }
 
 // WriteRequest sends a JSON-RPC request (with id) without waiting for a reply.
