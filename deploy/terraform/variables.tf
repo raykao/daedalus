@@ -58,9 +58,17 @@ variable "node_count" {
 }
 
 variable "node_vm_size" {
-  description = "VM size for the AKS default node pool."
+  description = "VM size for the AKS default node pool. Constrained to D-series test SKUs."
   type        = string
   default     = "Standard_D2s_v5"
+  validation {
+    condition = contains([
+      "Standard_D2s_v5", "Standard_D4s_v5",
+      "Standard_D2s_v4", "Standard_D4s_v4",
+      "Standard_D2s_v3", "Standard_D4s_v3",
+    ], var.node_vm_size)
+    error_message = "node_vm_size must be a whitelisted D-series test SKU. To add others, update variables.tf."
+  }
 }
 
 variable "ttl_hours" {
