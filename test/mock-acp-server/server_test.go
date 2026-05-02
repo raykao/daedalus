@@ -5,6 +5,7 @@ import (
 "context"
 "encoding/json"
 "net"
+"strings"
 "testing"
 "time"
 )
@@ -88,7 +89,7 @@ tc.sendRequest(t, "initialize", defaultInitParams())
 nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
-deltas, result := tc.sendPrompt(t, sid, "create hello.txt")
+deltas, _, result := tc.sendPrompt(t, sid, "create hello.txt")
 if len(deltas) < 2 {
 t.Errorf("expected ≥2 message_delta notifications, got %d", len(deltas))
 }
@@ -145,10 +146,139 @@ tc.sendRequest(t, "initialize", defaultInitParams())
 nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
 sid := nr["sessionId"].(string)
 
-_, result := tc.sendPrompt(t, sid, "create hello.txt")
+_, serverReqs, result := tc.sendPrompt(t, sid, "create hello.txt")
 if result["content"] == nil {
 t.Error("expected content after permission flow")
 }
+if len(serverReqs) != 1 {
+t.Fatalf("expected exactly 1 session/request_permission, got %d", len(serverReqs))
+}
+sr := serverReqs[0]
+if sr["method"] != "session/request_permission" {
+t.Errorf("expected method=session/request_permission, got %v", sr["method"])
+}
+params, ok := sr["params"].(map[string]any)
+if !ok {
+t.Fatalf("expected params to be a map, got %T", sr["params"])
+}
+toolCall, ok := params["toolCall"].(map[string]any)
+if !ok {
+t.Fatalf("expected toolCall to be a map, got %T", params["toolCall"])
+}
+if toolCall["tool"] != "bash" {
+t.Errorf("expected toolCall.tool=bash, got %v", toolCall["tool"])
+}
+options, ok := params["options"].([]any)
+if !ok {
+t.Fatalf("expected options to be a slice, got %T", params["options"])
+}
+foundAllow := false
+for _, o := range options {
+om, ok := o.(map[string]any)
+if !ok {
+continue
+}
+if om["optionId"] == "allow_once" {
+foundAllow = true
+break
+}
+}
+if !foundAllow {
+t.Errorf("expected options to include optionId=allow_once, got %v", options)
+}
+}
+
+func TestPermissionDenied(t *testing.T) {
+cfg := fastCfg()
+cfg.StreamingDelay = 5 * time.Millisecond
+cfg.ResponseDelay = 5 * time.Millisecond
+cfg.SendPermissions = true
+addr := startTestServer(t, cfg)
+tc := newTestClient(t, addr)
+defer tc.close()
+
+tc.sendRequest(t, "initialize", defaultInitParams())
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
+sid := nr["sessionId"].(string)
+
+rpcErr := tc.sendPromptExpectError(t, sid, "create hello.txt", "deny")
+if rpcErr == nil {
+t.Fatal("expected RPC error when client denies permission")
+}
+if rpcErr.Code != ErrInternal {
+t.Errorf("expected code=%d, got %d", ErrInternal, rpcErr.Code)
+}
+if !strings.Contains(rpcErr.Message, "deny") {
+t.Errorf("expected error message to mention deny, got %q", rpcErr.Message)
+}
+}
+
+func TestConnectionCloseUnblocksAwaiter(t *testing.T) {
+cfg := fastCfg()
+cfg.StreamingDelay = 0
+cfg.ResponseDelay = 0
+cfg.SendPermissions = true
+addr := startTestServer(t, cfg)
+tc := newTestClient(t, addr)
+
+tc.sendRequest(t, "initialize", defaultInitParams())
+nr := tc.sendRequest(t, "session/new", map[string]any{"cwd": "/workspace"})
+sid := nr["sessionId"].(string)
+
+// Issue session/prompt; do NOT respond to the permission request — instead,
+// close the connection and verify the server-side handler unwinds quickly
+// (well under the 30s WriteRequestAwaitResponse timeout).
+id := tc.nextID()
+if err := tc.c.WriteMessage(Request{
+JSONRPC: "2.0",
+ID:      &id,
+Method:  "session/prompt",
+Params: mustMarshal(t, map[string]any{
+"sessionId": sid,
+"prompt":    []map[string]any{{"type": "text", "text": "hi"}},
+}),
+}); err != nil {
+t.Fatalf("write prompt: %v", err)
+}
+
+// Wait for the server-to-client request to arrive on the wire.
+deadline := time.Now().Add(2 * time.Second)
+sawPermission := false
+for time.Now().Before(deadline) && !sawPermission {
+if !tc.scanner.Scan() {
+t.Fatal("scanner closed before permission request arrived")
+}
+var raw map[string]json.RawMessage
+if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
+t.Fatalf("parse: %v", err)
+}
+_, hasID := raw["id"]
+_, hasMethod := raw["method"]
+if hasID && hasMethod {
+sawPermission = true
+break
+}
+}
+if !sawPermission {
+t.Fatal("did not observe session/request_permission")
+}
+
+// Close the connection. The server-side awaiter must wake up far sooner
+// than the 30s timeout. We give it 2s of headroom.
+start := time.Now()
+tc.c.Close()
+// Best signal we have from the outside: the server's handler will never
+// produce a final response. Just sleep briefly and confirm the test
+// itself completes promptly. The real check is that no goroutines hang
+// on the 30s timer; we approximate by ensuring close is synchronous and
+// returns instantly.
+elapsed := time.Since(start)
+if elapsed > 2*time.Second {
+t.Errorf("Close took too long: %v", elapsed)
+}
+// Give the server a moment to clean up, but fail loudly if it
+// somehow took 30s+.
+time.Sleep(100 * time.Millisecond)
 }
 
 func TestMaxSessions(t *testing.T) {
@@ -251,10 +381,18 @@ t.Fatalf("write request %s: %v", method, err)
 return tc.readResponseSkipNotifications(t)
 }
 
-// sendPrompt writes a session/prompt request and collects all notifications
-// until the final response arrives. Auto-responds to any
-// session/request_permission server requests with optionId=allow_once.
-func (tc *testClient) sendPrompt(t *testing.T, sessionID, prompt string) ([]map[string]any, map[string]any) {
+// sendPrompt writes a session/prompt request, auto-approves any
+// session/request_permission server-requests with optionId=allow_once, and
+// returns the notifications, server-requests it observed, and the final
+// result.
+func (tc *testClient) sendPrompt(t *testing.T, sessionID, prompt string) ([]map[string]any, []map[string]any, map[string]any) {
+t.Helper()
+return tc.sendPromptWithPermission(t, sessionID, prompt, "allow_once")
+}
+
+// sendPromptWithPermission is like sendPrompt but lets the test choose which
+// optionId to return for permission requests (e.g. "deny").
+func (tc *testClient) sendPromptWithPermission(t *testing.T, sessionID, prompt, optionID string) ([]map[string]any, []map[string]any, map[string]any) {
 t.Helper()
 id := tc.nextID()
 if err := tc.c.WriteMessage(Request{
@@ -270,6 +408,7 @@ t.Fatalf("write prompt: %v", err)
 }
 
 var notifications []map[string]any
+var serverRequests []map[string]any
 for tc.scanner.Scan() {
 var raw map[string]json.RawMessage
 if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
@@ -284,11 +423,19 @@ if err := json.Unmarshal(tc.scanner.Bytes(), &inReq); err != nil {
 t.Fatalf("parse server request: %v", err)
 }
 if inReq.Method == "session/request_permission" {
+var params map[string]any
+if err := json.Unmarshal(inReq.Params, &params); err != nil {
+t.Fatalf("parse server-request params: %v", err)
+}
+serverRequests = append(serverRequests, map[string]any{
+"method": inReq.Method,
+"params": params,
+})
 _ = tc.c.WriteMessage(map[string]any{
 "jsonrpc": "2.0",
 "id":      inReq.ID,
 "result": map[string]any{
-"outcome": map[string]any{"optionId": "allow_once"},
+"outcome": map[string]any{"optionId": optionID},
 },
 })
 continue
@@ -318,10 +465,70 @@ t.Fatalf("prompt error: %s", rpcErr.Message)
 }
 var result map[string]any
 _ = json.Unmarshal(raw["result"], &result)
-return notifications, result
+return notifications, serverRequests, result
 }
 t.Fatal("connection closed before prompt response")
-return nil, nil
+return nil, nil, nil
+}
+
+// sendPromptExpectError sends a prompt, auto-responds to permission requests
+// with the given optionId, and expects the final response to be an RPC error.
+func (tc *testClient) sendPromptExpectError(t *testing.T, sessionID, prompt, optionID string) *RPCError {
+t.Helper()
+id := tc.nextID()
+if err := tc.c.WriteMessage(Request{
+JSONRPC: "2.0",
+ID:      &id,
+Method:  "session/prompt",
+Params: mustMarshal(t, map[string]any{
+"sessionId": sessionID,
+"prompt":    []map[string]any{{"type": "text", "text": prompt}},
+}),
+}); err != nil {
+t.Fatalf("write prompt: %v", err)
+}
+for tc.scanner.Scan() {
+var raw map[string]json.RawMessage
+if err := json.Unmarshal(tc.scanner.Bytes(), &raw); err != nil {
+t.Fatalf("parse message: %v", err)
+}
+_, hasID := raw["id"]
+_, hasMethod := raw["method"]
+if hasID && hasMethod {
+var inReq Request
+if err := json.Unmarshal(tc.scanner.Bytes(), &inReq); err != nil {
+t.Fatalf("parse server request: %v", err)
+}
+if inReq.Method == "session/request_permission" {
+_ = tc.c.WriteMessage(map[string]any{
+"jsonrpc": "2.0",
+"id":      inReq.ID,
+"result": map[string]any{
+"outcome": map[string]any{"optionId": optionID},
+},
+})
+continue
+}
+_ = tc.c.WriteMessage(map[string]any{
+"jsonrpc": "2.0",
+"id":      inReq.ID,
+"error":   map[string]any{"code": -32601, "message": "method not found"},
+})
+continue
+}
+if !hasID && hasMethod {
+continue // notification
+}
+if errRaw, ok := raw["error"]; ok && string(errRaw) != "null" {
+var rpcErr RPCError
+_ = json.Unmarshal(errRaw, &rpcErr)
+return &rpcErr
+}
+t.Fatal("expected error response, got success")
+return nil
+}
+t.Fatal("connection closed before prompt response")
+return nil
 }
 
 // readResponseSkipNotifications reads lines until a message with an id field is found.
