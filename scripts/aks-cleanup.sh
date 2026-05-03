@@ -17,6 +17,13 @@
 # RGs that are tagged `auto-destroy=true` but have a missing or unparseable
 # `expires-at` are skipped with a warning - never destroyed on parse error.
 #
+# `expires-at` MUST be RFC 3339 UTC of the exact form YYYY-MM-DDTHH:MM:SSZ
+# (matching Terraform's `timestamp()` output). Anything else - including
+# values GNU `date -d` would happily parse like "yesterday", "now",
+# "1 hour ago", or a bare epoch "0" - is treated as unparseable and the RG
+# is skipped. This regex gate runs BEFORE `date -u -d` so permissive
+# natural-language parsing cannot trigger a destruction.
+#
 # Behaviour:
 #   1. (optional) az account set --subscription <id>
 #   2. az group list --tag auto-destroy=true (server-side filter)
@@ -171,6 +178,15 @@ decide_rg_action() {
 
     if [[ -z "${expires_at}" || "${expires_at}" == "null" ]]; then
         echo "SKIP_MISSING"
+        return 0
+    fi
+
+    # Strict RFC 3339 UTC format gate. GNU `date -d` accepts permissive
+    # natural-language inputs ("yesterday", "now", "1 hour ago", "0") which
+    # would silently make an RG eligible for destruction. Reject anything
+    # that does not match Terraform's `timestamp()` output exactly.
+    if ! [[ "${expires_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+        echo "SKIP_UNPARSEABLE"
         return 0
     fi
 

@@ -316,6 +316,51 @@ OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX8}" AZ_LOG="${LOG8}"
 assert_contains "${OUT}" "deletion already in progress" "T8: deleting state logged"
 
 # ---------------------------------------------------------------------------
+# Test 9: strict RFC 3339 gate rejects permissive date strings
+# ---------------------------------------------------------------------------
+echo "=== Test 9: strict RFC 3339 gate (yesterday/now/0 are unparseable) ==="
+FIX9="${TMP_BIN}/fix9.json"
+cat > "${FIX9}" <<JSON
+[
+  {
+    "name": "rg-daedalus-yesterday",
+    "tags": {"auto-destroy": "true", "expires-at": "yesterday"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-now",
+    "tags": {"auto-destroy": "true", "expires-at": "now"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-zero",
+    "tags": {"auto-destroy": "true", "expires-at": "0"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-valid",
+    "tags": {"auto-destroy": "true", "expires-at": "${PAST}"},
+    "properties": {"provisioningState": "Succeeded"}
+  }
+]
+JSON
+LOG9="${TMP_BIN}/log9.txt"; : > "${LOG9}"
+OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX9}" AZ_LOG="${LOG9}" \
+    "${SUT}" --prefix rg-daedalus- 2>&1) || true
+
+assert_contains "${OUT}" "skipping rg-daedalus-yesterday: unparseable expires-at='yesterday'" "T9: 'yesterday' rejected"
+assert_contains "${OUT}" "skipping rg-daedalus-now: unparseable expires-at='now'"             "T9: 'now' rejected"
+assert_contains "${OUT}" "skipping rg-daedalus-zero: unparseable expires-at='0'"              "T9: '0' rejected"
+assert_contains "${OUT}" "Destroying rg-daedalus-valid"                                       "T9: valid RFC 3339 processed"
+
+DELETE_COUNT=$(grep -c "^DELETE " "${LOG9}" || true)
+assert_eq "${DELETE_COUNT}" "1" "T9: exactly one delete (only the valid RG)"
+DELETE_VALID=$(grep -c "^DELETE rg-daedalus-valid$" "${LOG9}" || true)
+assert_eq "${DELETE_VALID}" "1" "T9: delete targeted the valid RG"
+NO_PERMISSIVE=$(grep -cE "^DELETE rg-daedalus-(yesterday|now|zero)$" "${LOG9}" || true)
+assert_eq "${NO_PERMISSIVE}" "0" "T9: no deletes for permissively-parseable RGs"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
