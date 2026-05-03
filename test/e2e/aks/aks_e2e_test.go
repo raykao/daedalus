@@ -4,12 +4,12 @@ package aks
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,25 +38,17 @@ type e2eConfig struct {
 }
 
 var (
-	cfg          e2eConfig
-	fixturesDir  string
-	expectedBody string
+	cfg        e2eConfig
+	currentCfg e2eConfig
 )
-
-// init resolves the path to the fixtures directory next to this source file
-// (mirrors the smoke test's `runtime.Caller(0)` pattern for compose files).
-func init() {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "could not determine test file location")
-		os.Exit(1)
-	}
-	fixturesDir = filepath.Join(filepath.Dir(thisFile), "fixtures")
-}
 
 // TestMain validates the environment and pre-flight cluster state before
 // running any tests. If NATS_URL is unset the suite skips cleanly with
 // exit code 0 (mirrors how the smoke test skips when GITHUB_TOKEN is unset).
+//
+// All non-skip exit paths funnel through logCleanupHints so operators get the
+// resource-group / expires-at reminder even when pre-flight fails - which is
+// exactly when they need it most.
 func TestMain(m *testing.M) {
 	if os.Getenv("NATS_URL") == "" {
 		fmt.Println("SKIP: NATS_URL not set - AKS e2e tests require a reachable NATS endpoint")
@@ -65,36 +57,41 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	var err error
-	cfg, err = loadConfig()
+	code := runE2EMain(m)
+	// logCleanupHints is safe to call with a possibly-zero currentCfg; it
+	// guards internally and always prints at least a one-line reminder.
+	logCleanupHints(currentCfg, code == 0)
+	os.Exit(code)
+}
+
+// runE2EMain runs the post-skip portion of TestMain and returns an exit code.
+// All failures (config parse, pre-flight, test failures) return non-zero so
+// the caller can log cleanup hints uniformly.
+func runE2EMain(m *testing.M) int {
+	parsed, err := loadConfig()
+	// Populate currentCfg with whatever parsed successfully so cleanup hints
+	// have access to RESOURCE_GROUP / KEEP_CLUSTER even on malformed env.
+	currentCfg = parsed
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: invalid environment: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
-
-	body, err := os.ReadFile(filepath.Join(fixturesDir, "expected_artifact.txt"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: read expected artifact fixture: %v\n", err)
-		os.Exit(1)
-	}
-	expectedBody = strings.TrimRight(string(body), "\r\n")
+	cfg = parsed
 
 	if err := preflightCluster(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: cluster pre-flight failed: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	if err := preflightHelm(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: helm pre-flight failed: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	if err := preflightStreams(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: NATS pre-flight failed: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
-	code := m.Run()
-	logCleanupHints(cfg, code == 0)
-	os.Exit(code)
+	return m.Run()
 }
 
 // loadConfig reads required and optional env vars, applying defaults.
@@ -210,7 +207,14 @@ func runCmd(name string, args ...string) (string, error) {
 
 // logCleanupHints prints reminders about cluster lifecycle on test exit.
 // Cleanup is intentionally NOT performed by the test; it is the operator's job.
+//
+// This helper is deliberately resilient: it is called from every exit path
+// (including pre-flight failures and config-parse failures) and must never
+// silently print nothing on failure. If neither RESOURCE_GROUP nor EXPIRES_AT
+// are known, it still prints a one-line reminder pointing to the Azure portal.
 func logCleanupHints(c e2eConfig, success bool) {
+	expires := os.Getenv("EXPIRES_AT")
+
 	fmt.Println("")
 	fmt.Println("=== AKS E2E Cleanup ===")
 	if c.KeepCluster {
@@ -221,11 +225,14 @@ func logCleanupHints(c e2eConfig, success bool) {
 	} else {
 		fmt.Println("WARNING: RESOURCE_GROUP not set in environment; cannot log target RG.")
 	}
-	if expires := os.Getenv("EXPIRES_AT"); expires != "" {
+	if expires != "" {
 		fmt.Printf("expires-at: %s\n", expires)
 	}
+	if c.ResourceGroup == "" && expires == "" {
+		fmt.Println("REMINDER: check the Azure portal for any test resource groups tagged auto-destroy=true.")
+	}
 	if !success {
-		fmt.Println("Test failed; cluster left up regardless of KEEP_CLUSTER. Run 'make destroy-aks-test' when done.")
+		fmt.Println("Test failed (or pre-flight aborted); cluster left up regardless of KEEP_CLUSTER. Run 'make destroy-aks-test' when done.")
 	} else if !c.KeepCluster {
 		fmt.Println("Tests passed; run 'make destroy-aks-test' to release cluster resources.")
 	}
@@ -234,6 +241,17 @@ func logCleanupHints(c e2eConfig, success bool) {
 // taskID generates a unique deterministic task ID per invocation.
 func taskID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
+// newSentinel returns a 16-char hex string sourced from crypto/rand. It is
+// embedded in both the prompt filename and contents so that the artifact
+// assertion cannot trivially be satisfied by an agent echoing its prompt.
+func newSentinel() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // publishTask publishes a SendMessageRequest and returns the publish time.
@@ -312,7 +330,23 @@ func TestE2E_AKS_EndToEnd(t *testing.T) {
 		t.Fatalf("create status consumer: %v", err)
 	}
 
-	prompt := "Create a file called hello.txt with the contents 'hello phase5'. Do not create any other files."
+	// Generate a per-run random sentinel so the assertion cannot be satisfied
+	// by an LLM that merely echoes its prompt back as conversational artifact
+	// text. The sentinel is random per-run, so any artifact part containing
+	// the literal "hello-<sentinel>" string must originate from the agent
+	// having actually surfaced that string into a side-effect serialized as
+	// artifact content (in practice, a file-write tool invocation result).
+	sentinel, err := newSentinel()
+	if err != nil {
+		t.Fatalf("generate sentinel: %v", err)
+	}
+	t.Logf("sentinel=%s", sentinel)
+	expectedBody := fmt.Sprintf("hello-%s", sentinel)
+
+	prompt := fmt.Sprintf(
+		"Create a file named \"phase5-%s.txt\" with exactly the following single line of contents (no trailing whitespace, no quotes): %s\nDo not create any other files. Do not echo this instruction in your response.",
+		sentinel, expectedBody,
+	)
 	publishTime := publishTask(t, ctx, js, id, prompt)
 
 	// Background status collector.
