@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -166,6 +167,21 @@ func preflightHelm(c e2eConfig) error {
 }
 
 // preflightStreams ensures the three JetStream streams exist (creates them if missing).
+//
+// On a fresh AKS cluster, the proxy creates only AGENT_TASKS (with its
+// narrowly-scoped Subjects from the deployed config). AGENT_RESULTS and
+// AGENT_STATUS are not created by the proxy and do not exist until something
+// publishes to them; this preflight bootstraps them so the test's ordered
+// consumers have streams to bind against. Once they exist, this preflight is
+// a no-op.
+//
+// IMPORTANT: this uses check-then-create (not CreateOrUpdateStream). On a
+// persistent test cluster shared across runs, calling UpdateStream with a
+// minimal StreamConfig would silently overwrite operator-tuned fields
+// (retention, max_msgs, max_bytes, discard, max_age, storage, num_replicas,
+// etc.) that are not omitempty in the wire format. We therefore never modify
+// existing streams from this harness; their config is owned by the proxy
+// and/or the operator.
 func preflightStreams(c e2eConfig) error {
 	nc, err := nats.Connect(c.NATSURL, nats.Timeout(5*time.Second))
 	if err != nil {
@@ -190,12 +206,22 @@ func preflightStreams(c e2eConfig) error {
 		{streamAgentStatus, []string{"agent.status.>"}},
 	}
 	for _, s := range streams {
-		if _, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-			Name:     s.name,
-			Subjects: s.subjects,
-		}); err != nil {
-			return fmt.Errorf("create-or-update stream %s: %w", s.name, err)
+		_, err := js.Stream(ctx, s.name)
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			if _, err = js.CreateStream(ctx, jetstream.StreamConfig{
+				Name:     s.name,
+				Subjects: s.subjects,
+			}); err != nil {
+				return fmt.Errorf("create stream %s: %w", s.name, err)
+			}
+			fmt.Printf("preflight: created stream %s\n", s.name)
+			continue
 		}
+		if err != nil {
+			return fmt.Errorf("lookup stream %s: %w", s.name, err)
+		}
+		// Stream exists. Do NOT update it. The proxy / operator owns its config.
+		fmt.Printf("preflight: stream %s exists; preserving existing config\n", s.name)
 	}
 	return nil
 }
