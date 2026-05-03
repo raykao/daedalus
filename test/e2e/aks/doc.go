@@ -29,7 +29,9 @@
 //   - RELEASE_NAME   defaults to "daedalus"
 //   - TASK_TIMEOUT   Go duration string, defaults to "10m"
 //   - KEEP_CLUSTER   any non-empty value preserves the cluster on success (logged only)
-//   - RESOURCE_GROUP optional, logged on completion to aid manual cleanup
+//   - RESOURCE_GROUP Azure resource group name, logged on test exit to aid manual cleanup
+//   - EXPIRES_AT     ISO-8601 timestamp matching the cluster's `expires-at` resource-group
+//     tag; logged on test exit only (used purely for operator hint)
 //
 // # Cluster assumption
 //
