@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Phase 5.5 - TTL cleanup**: `scripts/aks-cleanup.sh` and
+  `.github/workflows/nightly-cleanup.yml` for scheduled destruction of
+  expired AKS test resource groups. The script lists RGs tagged
+  `auto-destroy=true` and deletes any whose `expires-at` (RFC 3339 UTC) is
+  in the past; missing or unparseable tags are skipped with a warning,
+  never destroyed on parse error. Required `--prefix` safety net (or
+  explicit `--all-prefixes`) prevents reaping unrelated tagged RGs. The
+  workflow runs every 30 minutes plus on-demand `workflow_dispatch` (with
+  optional `dry_run` and `prefix` overrides). Cleanup auth uses the
+  existing GHA UAMI with a new subscription-scoped Contributor role
+  assignment (`var.enable_cleanup_role`, default true; documented
+  trade-off vs a future custom-role hardening). New Make targets
+  `cleanup-aks-test` and `test-cleanup-script`. Bash unit tests cover the
+  parse/decision/dispatch logic via a PATH-shimmed `az` (no Azure access
+  required).
 - E2E test harness for AKS deployments (Phase 5.4): `test/e2e/aks/aks_e2e_test.go` gated by `aks_e2e` build tag, Makefile target `test-aks-e2e`, `aks.env.example`. Random sentinel-based artifact assertion in the AKS e2e harness to prevent false-pass on prompt-echoing agents (the prompt and the asserted artifact body both embed a per-run `crypto/rand` 16-hex-char sentinel, so an LLM that echoes its prompt back as conversational text cannot satisfy the assertion without actually surfacing the sentinel via a side-effect that the proxy serializes as artifact content).
 - `KEEP_CLUSTER` opt-out for debugging.
 - **Phase 5.3 - Automated AKS deployment**: one-command `make deploy-aks-test` (and matching `make destroy-aks-test`) that runs the full sequence - prerequisites check, Azure auth, `terraform apply`, `az aks get-credentials`, namespace upsert, KEDA install (pinned to 2.14.0), workload-identity wiring, `GITHUB_TOKEN` secret, and `helm upgrade --install` of the Daedalus chart - in idempotent steps safe to re-run. New scripts `deploy/scripts/deploy-aks.sh` and `deploy/scripts/destroy-aks.sh` are the source of truth; new Make targets `deploy-aks-test`, `destroy-aks-test`, `aks-credentials`, and `aks-status` are thin wrappers. New chart overlay `deploy/helm/daedalus/values-aks-test.yaml` parameterizes image repositories so each engineer's per-deployment ACR is supplied via `--set` (no hardcoded ACR hostname). Existing `helm-aks-*` Make targets and `deploy/helm/values-aks.yaml` are preserved for backward compatibility and will be cleaned up in Phase 5.6.
