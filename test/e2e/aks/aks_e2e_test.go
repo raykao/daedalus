@@ -35,6 +35,7 @@ type e2eConfig struct {
 	TaskTimeout   time.Duration
 	KeepCluster   bool
 	ResourceGroup string
+	WorkerSubject string
 }
 
 var (
@@ -103,6 +104,7 @@ func loadConfig() (e2eConfig, error) {
 		ReleaseName:   getenvDefault("RELEASE_NAME", "daedalus"),
 		KeepCluster:   os.Getenv("KEEP_CLUSTER") != "",
 		ResourceGroup: os.Getenv("RESOURCE_GROUP"),
+		WorkerSubject: getenvDefault("WORKER_SUBJECT", "agent.tasks.copilot"),
 	}
 	if c.NATSURL == "" {
 		return c, fmt.Errorf("NATS_URL is required")
@@ -255,6 +257,13 @@ func newSentinel() (string, error) {
 }
 
 // publishTask publishes a SendMessageRequest and returns the publish time.
+//
+// The publish subject is the worker's queue subject (cfg.WorkerSubject), NOT a
+// per-task subject. The proxy's JetStream consumer uses an exact-match
+// FilterSubject on its configured queueSubject, so publishing to anything else
+// (e.g. "agent.tasks.<id>") would be silently dropped on AKS. The proxy keys
+// outbound result/status subjects off Message.TaskID, so per-task filtering on
+// the read side continues to work via that field, not via the publish subject.
 func publishTask(t *testing.T, ctx context.Context, js jetstream.JetStream, id, prompt string) time.Time {
 	t.Helper()
 
@@ -273,12 +282,12 @@ func publishTask(t *testing.T, ctx context.Context, js jetstream.JetStream, id, 
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	subject := "agent.tasks." + id
+	subject := cfg.WorkerSubject
+	t.Logf("publishing task to %s (worker subject) with taskID=%s", subject, id)
 	publishTime := time.Now()
 	if _, err = js.Publish(ctx, subject, reqBytes); err != nil {
 		t.Fatalf("publish task to %s: %v", subject, err)
 	}
-	t.Logf("task published: id=%s subject=%s", id, subject)
 	return publishTime
 }
 
