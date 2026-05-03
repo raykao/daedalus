@@ -1,7 +1,22 @@
 # Phase 5 Terraform: AKS + ACR + Key Vault + Workload Identity
 
+> Most engineers should not run `terraform` directly - use `make
+> deploy-aks-test`. This README is for the cases where you do.
+
 Provisions the Phase 5 test infrastructure in a single subscription, single
 region, with a 4-hour TTL enforced by tags + the Phase 5.5 cleanup workflow.
+
+## Cross-references
+
+- [`docs/runbook.md`](../../docs/runbook.md) - the happy path. Start here.
+- [`docs/aks-deployment.md`](../../docs/aks-deployment.md) - architecture
+  reference and the workload-side troubleshooting appendix (AcrPull,
+  workload identity, GHA OIDC subject mismatch, KEDA, secrets).
+
+The troubleshooting items in this README are scoped to `terraform`-shaped
+problems (state lock, federated credential listing, cleanup role
+verification, TTL drift). Workload-side failures (image pulls, pod crash
+loops, KEDA triggers) live in `docs/aks-deployment.md`.
 
 ## Layout
 
