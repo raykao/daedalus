@@ -1,7 +1,8 @@
 .PHONY: test-contract test-conformance test test-integration test-smoke \
         test-aks-e2e \
         helm-aks-deploy helm-aks-teardown helm-aks-status helm-aks-logs \
-        deploy-aks-test destroy-aks-test aks-credentials aks-status
+        deploy-aks-test destroy-aks-test aks-credentials aks-status \
+        cleanup-aks-test test-cleanup-script
 
 # AKS deployment defaults - override on the command line as needed.
 RELEASE_NAME ?= daedalus
@@ -217,3 +218,24 @@ aks-status:
 	@echo ""
 	@echo "=== Pods ==="
 	@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Phase 5.5: TTL cleanup
+# ---------------------------------------------------------------------------
+# cleanup-aks-test - manual invocation of scripts/aks-cleanup.sh against the
+# default Phase 5 prefix (rg-daedalus-). The same script runs every 30 minutes
+# from .github/workflows/nightly-cleanup.yml.
+#
+# Usage:
+#   make cleanup-aks-test                 # real run; deletes expired RGs
+#   make cleanup-aks-test DRY_RUN=1       # print intent only
+#   DRY_RUN=1 make cleanup-aks-test       # same effect
+cleanup-aks-test:
+	@DRY_FLAG=""; \
+	if [ "$${DRY_RUN:-0}" = "1" ]; then DRY_FLAG="--dry-run"; fi; \
+	./scripts/aks-cleanup.sh --prefix rg-daedalus- $$DRY_FLAG
+
+# test-cleanup-script - run the bash unit tests for scripts/aks-cleanup.sh.
+# Does not require Azure or network access (uses a PATH-shimmed `az`).
+test-cleanup-script:
+	@bash scripts/aks-cleanup_test.sh

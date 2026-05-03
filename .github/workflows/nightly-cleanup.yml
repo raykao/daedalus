@@ -1,0 +1,146 @@
+# AKS Nightly Cleanup
+#
+# Scheduled cleanup of TTL-tagged Azure resource groups. Runs every 30
+# minutes and deletes any RG with `auto-destroy=true` whose `expires-at`
+# tag is in the past. The Phase 5 Terraform stack
+# (deploy/terraform/locals.tf) tags every workload RG with these.
+#
+# ## Required GitHub repository variables
+#
+# Same variables already wired by `build-and-publish.yml`:
+#
+#   AZURE_CLIENT_ID        # terraform output -raw gha_client_id
+#   AZURE_TENANT_ID        # terraform output -raw gha_tenant_id
+#   AZURE_SUBSCRIPTION_ID  # terraform output -raw subscription_id
+#
+# ## Federated credential subjects
+#
+# Scheduled workflow runs always authenticate as the default branch of
+# the repo, so the `sub` claim is:
+#
+#   repo:raykao/daedalus:ref:refs/heads/main
+#
+# This subject is already registered on the GHA UAMI by default (see
+# `local.github_oidc_default_subjects` in deploy/terraform/locals.tf).
+# No tfvars change is required to enable the schedule.
+#
+# Manual `workflow_dispatch` runs from the Actions UI also default to the
+# main branch (see GitHub's docs); dispatching from a feature branch
+# requires that branch's subject to be registered separately.
+#
+# ## RBAC requirement
+#
+# The cleanup UAMI must have subscription-scoped permissions to list and
+# delete resource groups. Phase 5.5 grants `Contributor` on the
+# subscription via `var.enable_cleanup_role` in deploy/terraform (default
+# true). Setting that variable to false disables this workflow's ability
+# to delete anything (`az group list` will still work but `az group delete`
+# will return AuthorizationFailed).
+#
+# Future hardening: replace Contributor with a custom role limited to
+# `Microsoft.Resources/subscriptions/resourceGroups/{read,delete}`. This
+# is deliberately out of scope for Phase 5.5 (Phase 6 concern).
+#
+# ## Out of scope (Phase 5.5)
+#
+# - Slack/email notification on cleanup failure (Phase 6)
+# - Multi-subscription cleanup
+# - Per-PR ephemeral environments
+#
+# ## Design note: dispatch input pass-through
+#
+# An empty `prefix` on `workflow_dispatch` is deliberately passed through
+# verbatim to the cleanup script, where it triggers the safety net
+# (exit 2) rather than being silently substituted with the default. This
+# lets operators test the safety gate from the Actions UI without
+# modifying the script. GHA expressions cannot distinguish "supplied but
+# empty" from "not supplied", so the dispatch-vs-schedule branching is
+# done in bash using an explicit IS_DISPATCH flag.
+
+name: AKS Nightly Cleanup
+
+on:
+  schedule:
+    # Every 30 minutes. Cheap because `az group list --tag` is cheap and
+    # `az group delete --no-wait` returns immediately.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run only - print destroy intent, change nothing'
+        required: false
+        default: false
+        type: boolean
+      prefix:
+        description: 'Only destroy RGs whose name starts with this prefix'
+        required: false
+        default: 'rg-daedalus-'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+# Don't queue overlapping cleanup runs - one in-flight delete is enough.
+# A queued run from a missed schedule will still pick up any RG that
+# remains (Azure's Deleting state is idempotent).
+concurrency:
+  group: nightly-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: cleanup
+    runs-on: ubuntu-latest
+    # Hard cap on the job. The full path (login + list + delete --no-wait)
+    # typically completes in well under a minute; 15 minutes is a generous
+    # ceiling that prevents a hung `az` call from holding the concurrency
+    # slot for the GHA default of 360 minutes.
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run aks-cleanup.sh
+        env:
+          # Pass dispatch inputs through verbatim. The bash layer below
+          # decides how to interpret them - in particular, an empty
+          # DISPATCH_PREFIX must reach the script unchanged so its safety
+          # net can fire (see design note in the workflow header).
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          DISPATCH_PREFIX: ${{ inputs.prefix }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "${IS_DISPATCH}" = "true" ]; then
+            # On dispatch, honor the operator's input verbatim - even if
+            # empty. An empty prefix triggers the script's safety net
+            # (exit 2) so an operator can deliberately test the gate
+            # without it being silently rewritten by the workflow
+            # expression layer.
+            args=( "--prefix" "${DISPATCH_PREFIX}" )
+            if [ "${DISPATCH_DRY_RUN}" = "true" ]; then
+              args+=( "--dry-run" )
+            fi
+          else
+            # Scheduled (or other non-dispatch) triggers always run the
+            # standard scoped cleanup against the test prefix. No
+            # dry-run on schedule.
+            args=( "--prefix" "rg-daedalus-" )
+          fi
+          echo "Invoking: scripts/aks-cleanup.sh ${args[*]}"
+          set +e
+          bash scripts/aks-cleanup.sh "${args[@]}"
+          rc=$?
+          set -e
+          if [ "${rc}" -ne 0 ]; then
+            echo "::warning title=AKS cleanup non-zero exit::scripts/aks-cleanup.sh returned ${rc} - one or more RG deletes failed. See log above."
+            exit "${rc}"
+          fi

@@ -87,3 +87,8 @@ output "gha_oidc_subjects" {
   description = "OIDC subjects the GHA federated credential will accept. Cross-check these against the workflow's branch/PR/environment triggers."
   value       = module.gha_identity.subjects
 }
+
+output "cleanup_role_assignment_id" {
+  description = "Resource ID of the subscription-scoped Contributor role assignment granted to the GHA UAMI for the Phase 5.5 cleanup workflow. Null when var.enable_cleanup_role is false. Useful for `az role assignment show --ids ...` debugging."
+  value       = var.enable_cleanup_role ? azurerm_role_assignment.gha_cleanup[0].id : null
+}

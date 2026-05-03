@@ -135,6 +135,12 @@ variable "github_oidc_subjects" {
   }
 }
 
+variable "enable_cleanup_role" {
+  description = "If true (default), grant the GitHub Actions managed identity (`module.gha_identity`) subscription-scoped Contributor. This is what `.github/workflows/nightly-cleanup.yml` uses to list and delete TTL-expired resource groups (Phase 5.5). Set to false to disable cleanup - the workflow will still run but every `az group delete` call will fail with AuthorizationFailed. Contributor is broad on purpose for the dedicated test subscription; future hardening (Phase 6) is a custom role limited to `Microsoft.Resources/subscriptions/resourceGroups/{read,delete}`."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Common tags applied to every resource."
   type        = map(string)

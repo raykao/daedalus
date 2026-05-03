@@ -18,6 +18,11 @@ ttl_hours       = 4
 #   repo:<github_owner>/<github_repo>:environment:test
 # github_oidc_subjects = []
 
+# Phase 5.5 TTL cleanup. Default true grants the GHA UAMI sub-scoped
+# Contributor so the nightly-cleanup workflow can delete expired RGs.
+# Set to false to disable - the workflow will run but be unable to delete.
+# enable_cleanup_role = true
+
 tags = {
   project    = "daedalus"
   phase      = "5"
