@@ -314,6 +314,17 @@ LOG8="${TMP_BIN}/log8.txt"; : > "${LOG8}"
 OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX8}" AZ_LOG="${LOG8}" \
     "${SUT}" --prefix rg-daedalus- 2>&1) || true
 assert_contains "${OUT}" "deletion already in progress" "T8: deleting state logged"
+# Prove decide_rg_action's DESTROY branch actually executed (these strings
+# are emitted ONLY from the DESTROY path after decide_rg_action returns).
+assert_contains "${OUT}" "re-issuing delete (already in Deleting state, harmless)" \
+    "T8: re-issued delete from DESTROY branch"
+assert_contains "${OUT}" "Destroying rg-daedalus-deleting (expired"  "T8: Destroying log line emitted"
+assert_contains "${OUT}" "rg-daedalus-deleting: delete requested"    "T8: delete requested PASS line"
+
+T8_DELETE_COUNT=$(grep -c "^DELETE " "${LOG8}" || true)
+assert_eq "${T8_DELETE_COUNT}" "1" "T8: az group delete invoked exactly once for Deleting RG"
+T8_DELETE_NAME=$(grep -c "^DELETE rg-daedalus-deleting$" "${LOG8}" || true)
+assert_eq "${T8_DELETE_NAME}" "1" "T8: delete targeted rg-daedalus-deleting"
 
 # ---------------------------------------------------------------------------
 # Test 9: strict RFC 3339 gate rejects permissive date strings
