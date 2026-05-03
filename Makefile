@@ -1,6 +1,6 @@
 .PHONY: test-contract test-conformance test test-integration test-smoke \
         test-aks-e2e \
-        helm-aks-deploy helm-aks-teardown helm-aks-status helm-aks-logs \
+        aks-logs \
         deploy-aks-test destroy-aks-test aks-credentials aks-status \
         cleanup-aks-test test-cleanup-script
 
@@ -80,58 +80,15 @@ test-aks-e2e:
 # AKS Helm deployment targets
 # ---------------------------------------------------------------------------
 
-# helm-aks-deploy - install or upgrade the Daedalus release on AKS.
-# Applies the AKS overlay values-aks.yaml on top of the chart's own values.yaml
-# (Helm auto-loads deploy/helm/daedalus/values.yaml from the chart directory).
-# Creates the namespace if it does not already exist.
-# Blocks until all resources are ready or the 5-minute timeout expires.
-#
-# Usage:
-#   make helm-aks-deploy
-#   make helm-aks-deploy RELEASE_NAME=daedalus NAMESPACE=daedalus
-helm-aks-deploy: check-aks-context
-	helm upgrade --install $(RELEASE_NAME) deploy/helm/daedalus/ \
-	    -f deploy/helm/values-aks.yaml \
-	    --namespace $(NAMESPACE) \
-	    --create-namespace \
-	    --wait --timeout 5m
-
-# helm-aks-teardown - remove the Helm release and associated resources.
-# Does NOT delete the namespace or any Kubernetes Secrets you created
-# manually (e.g. acr-pull-secret, copilot-secret).
-#
-# Usage:
-#   make helm-aks-teardown
-helm-aks-teardown: check-aks-context
-	helm uninstall $(RELEASE_NAME) --namespace $(NAMESPACE) || true
-
-# helm-aks-status - show Helm release status and live Kubernetes resources.
-# Prints ScaledJobs, active Jobs, and running Pods in the namespace.
-#
-# Usage:
-#   make helm-aks-status
-helm-aks-status: check-aks-context
-	@echo "=== Helm release status ==="
-	helm status $(RELEASE_NAME) --namespace $(NAMESPACE)
-	@echo ""
-	@echo "=== ScaledJobs ==="
-	kubectl get scaledjobs -n $(NAMESPACE) -o wide || true
-	@echo ""
-	@echo "=== Jobs ==="
-	kubectl get jobs -n $(NAMESPACE) -o wide || true
-	@echo ""
-	@echo "=== Pods ==="
-	kubectl get pods -n $(NAMESPACE) -o wide || true
-
-# helm-aks-logs - tail logs for proxy and agent containers of a worker.
+# aks-logs - tail logs for proxy and agent containers of a worker.
 # Defaults to the most recently created pod for WORKER.
 # Streams both the proxy sidecar and the agent container side by side.
 #
 # Usage:
-#   make helm-aks-logs               # defaults to WORKER=copilot
-#   make helm-aks-logs WORKER=claude
+#   make aks-logs               # defaults to WORKER=copilot
+#   make aks-logs WORKER=claude
 WORKER ?= copilot
-helm-aks-logs: check-aks-context
+aks-logs: check-aks-context
 	@POD=$$(kubectl get pods -n $(NAMESPACE) \
 	    -l "app.kubernetes.io/component=$(WORKER)" \
 	    --sort-by=.metadata.creationTimestamp \

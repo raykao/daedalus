@@ -145,12 +145,12 @@ if helm status "$RELEASE_NAME" -n "$NAMESPACE" &>/dev/null; then
         pass "Helm release '$RELEASE_NAME' is deployed (status: $HELM_STATUS)"
     else
         fail "Helm release '$RELEASE_NAME' has unexpected status: $HELM_STATUS"
-        warn "Re-deploy with: make helm-aks-deploy"
+        warn "Re-deploy with: make deploy-aks-test"
         exit 1
     fi
 else
     fail "Helm release '$RELEASE_NAME' not found in namespace '$NAMESPACE'"
-    error "Deploy first with: make helm-aks-deploy"
+    error "Deploy first with: make deploy-aks-test"
     exit 1
 fi
 
@@ -191,7 +191,7 @@ if [ "$SJ_COUNT" -gt 0 ]; then
     kubectl get scaledjobs -n "$NAMESPACE" 2>/dev/null || true
 else
     fail "No ScaledJob resources found in namespace '$NAMESPACE'"
-    error "Check that keda.enabled=true in values-aks.yaml and the chart was deployed."
+    error "Check that keda.enabled=true in deploy/helm/daedalus/values-aks-test.yaml and the chart was deployed."
     exit 1
 fi
 
