@@ -22,3 +22,8 @@ provider "azurerm" {
 # Surfaces the deployer's tenant + object_id so we can grant them KV Secrets
 # Officer for out-of-band secret writes.
 data "azurerm_client_config" "current" {}
+
+# Phase 5.5: needed for subscription-scoped role assignments granted to the
+# GitHub Actions cleanup UAMI. See `azurerm_role_assignment.gha_cleanup` in
+# main.tf.
+data "azurerm_subscription" "current" {}

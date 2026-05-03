@@ -152,6 +152,47 @@ the identity. Compare the workflow's actual `sub` (visible in the OIDC
 token's JWT payload, or by inspecting the `azure/login` action's debug
 output) against `terraform output gha_oidc_subjects`.
 
+## Phase 5.5 cleanup
+
+The Phase 5.5 cleanup workflow (`.github/workflows/nightly-cleanup.yml`)
+runs every 30 minutes, lists resource groups tagged `auto-destroy=true`,
+and deletes any whose `expires-at` tag is in the past. It authenticates
+via the existing GHA managed identity (`module.gha_identity`).
+
+To grant that identity permission to delete RGs, this stack assigns it
+**subscription-scoped `Contributor`** by default (`var.enable_cleanup_role
+= true`). Set `enable_cleanup_role = false` in tfvars to disable the role
+assignment - the workflow will still authenticate but every `az group
+delete` call will return `AuthorizationFailed`.
+
+### Trade-off: broad role vs operational simplicity
+
+`Contributor` is more authority than the cleanup workflow strictly needs.
+The cleanup script only calls `az group list` and `az group delete`. A
+custom role limited to
+`Microsoft.Resources/subscriptions/resourceGroups/{read,delete}` would be
+tighter, but it requires a `azurerm_role_definition` resource, lifecycle
+management, and per-subscription propagation delays.
+
+For Phase 5 - a dedicated test subscription with no production workload
+sharing the blast radius - `Contributor` is acceptable. Phase 6 hardening
+will replace this with a custom role.
+
+### Verifying the role assignment
+
+After `terraform apply`:
+
+```
+terraform output -raw cleanup_role_assignment_id
+```
+
+is a non-empty resource ID when `enable_cleanup_role = true`. Cross-check
+with:
+
+```
+az role assignment show --ids "$(terraform output -raw cleanup_role_assignment_id)"
+```
+
 ## TTL behavior
 
 - Every resource in the workload RG inherits `auto-destroy=true` and
