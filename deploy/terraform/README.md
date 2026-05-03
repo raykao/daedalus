@@ -46,7 +46,7 @@ deploy/terraform/
 
 ## Prerequisites
 
-- Terraform `>= 1.7.0`
+- Terraform `>= 1.9.0`
 - Azure CLI, logged in (`az login`)
 - The target subscription is selectable: `az account set --subscription <your-subscription-id>`
 - Permissions to create role assignments at the resource-group scope (the
