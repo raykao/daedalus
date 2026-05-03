@@ -413,6 +413,21 @@ cat > "${FIX9}" <<JSON
     "properties": {"provisioningState": "Succeeded"}
   },
   {
+    "name": "rg-daedalus-date-only",
+    "tags": {"auto-destroy": "true", "expires-at": "2026-05-01"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-no-z",
+    "tags": {"auto-destroy": "true", "expires-at": "2026-05-01T18:42:00"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-offset",
+    "tags": {"auto-destroy": "true", "expires-at": "2026-05-01T18:42:00+00:00"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
     "name": "rg-daedalus-valid",
     "tags": {"auto-destroy": "true", "expires-at": "${PAST}"},
     "properties": {"provisioningState": "Succeeded"}
@@ -426,14 +441,29 @@ OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX9}" AZ_LOG="${LOG9}"
 assert_contains "${OUT}" "skipping rg-daedalus-yesterday: unparseable expires-at='yesterday'" "T9: 'yesterday' rejected"
 assert_contains "${OUT}" "skipping rg-daedalus-now: unparseable expires-at='now'"             "T9: 'now' rejected"
 assert_contains "${OUT}" "skipping rg-daedalus-zero: unparseable expires-at='0'"              "T9: '0' rejected"
+# ISO 8601 near-miss forms documented in the script header. The regex gate
+# requires the exact YYYY-MM-DDTHH:MM:SSZ shape, so these must all be
+# rejected. Regression guard for any future loosening of the regex.
+assert_contains "${OUT}" "skipping rg-daedalus-date-only: unparseable expires-at='2026-05-01'" \
+    "T9: ISO date-only rejected"
+assert_contains "${OUT}" "skipping rg-daedalus-no-z: unparseable expires-at='2026-05-01T18:42:00'" \
+    "T9: ISO without trailing Z rejected"
+assert_contains "${OUT}" "skipping rg-daedalus-offset: unparseable expires-at='2026-05-01T18:42:00+00:00'" \
+    "T9: ISO with +00:00 offset rejected"
 assert_contains "${OUT}" "Destroying rg-daedalus-valid"                                       "T9: valid RFC 3339 processed"
+
+# None of the rejected forms should have been logged as "Destroying ..."
+for rejected in rg-daedalus-yesterday rg-daedalus-now rg-daedalus-zero \
+                rg-daedalus-date-only rg-daedalus-no-z rg-daedalus-offset; do
+    assert_not_contains "${OUT}" "Destroying ${rejected}" "T9: ${rejected} not destroyed"
+done
 
 DELETE_COUNT=$(grep -c "^DELETE " "${LOG9}" || true)
 assert_eq "${DELETE_COUNT}" "1" "T9: exactly one delete (only the valid RG)"
 DELETE_VALID=$(grep -c "^DELETE rg-daedalus-valid$" "${LOG9}" || true)
 assert_eq "${DELETE_VALID}" "1" "T9: delete targeted the valid RG"
-NO_PERMISSIVE=$(grep -cE "^DELETE rg-daedalus-(yesterday|now|zero)$" "${LOG9}" || true)
-assert_eq "${NO_PERMISSIVE}" "0" "T9: no deletes for permissively-parseable RGs"
+NO_PERMISSIVE=$(grep -cE "^DELETE rg-daedalus-(yesterday|now|zero|date-only|no-z|offset)$" "${LOG9}" || true)
+assert_eq "${NO_PERMISSIVE}" "0" "T9: no deletes for permissively-parseable or near-miss ISO RGs"
 
 # ---------------------------------------------------------------------------
 # Test 10: client-side fallback when `az group list --tag` is unsupported.
