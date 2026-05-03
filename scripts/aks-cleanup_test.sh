@@ -182,6 +182,57 @@ mk_all_future_fixture() {
 JSON
 }
 
+# Fixture for the client-side fallback test (T10). Includes RGs that share
+# the prefix but have tags that should NOT pass the jq fallback filter
+# `select(.tags["auto-destroy"] == "true")`:
+#   - rg-daedalus-expired      auto-destroy=true,  expired       -> DESTROY
+#   - rg-daedalus-untagged     tags=null                         -> filtered out
+#   - rg-daedalus-other-tag    only env=prod                     -> filtered out
+#   - rg-daedalus-wrong-case   auto-destroy=True (capital)       -> filtered out
+#   - rg-daedalus-falsey       auto-destroy=false                -> filtered out
+#
+# All five names share the rg-daedalus- prefix, so the jq filter is the only
+# discriminator. If the filter were weakened to e.g. `select(true)` or
+# `.tags["auto-destroy"] != null`, more than one RG would be processed and
+# the assertions in T10 would fail loudly.
+mk_fallback_fixture() {
+    local out="$1"
+    cat > "${out}" <<JSON
+[
+  {
+    "name": "rg-daedalus-expired",
+    "location": "eastus",
+    "tags": {"auto-destroy": "true", "expires-at": "${PAST}"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-untagged",
+    "location": "eastus",
+    "tags": null,
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-other-tag",
+    "location": "eastus",
+    "tags": {"env": "prod"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-wrong-case",
+    "location": "eastus",
+    "tags": {"auto-destroy": "True", "expires-at": "${PAST}"},
+    "properties": {"provisioningState": "Succeeded"}
+  },
+  {
+    "name": "rg-daedalus-falsey",
+    "location": "eastus",
+    "tags": {"auto-destroy": "false", "expires-at": "${PAST}"},
+    "properties": {"provisioningState": "Succeeded"}
+  }
+]
+JSON
+}
+
 # ---------------------------------------------------------------------------
 # Test 1: happy path - mixed RGs, real-run, prefix filter active.
 # ---------------------------------------------------------------------------
@@ -385,29 +436,47 @@ NO_PERMISSIVE=$(grep -cE "^DELETE rg-daedalus-(yesterday|now|zero)$" "${LOG9}" |
 assert_eq "${NO_PERMISSIVE}" "0" "T9: no deletes for permissively-parseable RGs"
 
 # ---------------------------------------------------------------------------
-# Test 10: client-side fallback when `az group list --tag` is unsupported
+# Test 10: client-side fallback when `az group list --tag` is unsupported.
+#
+# This test specifically exercises the jq fallback filter
+# `select(.tags["auto-destroy"] == "true")` in scripts/aks-cleanup.sh. The
+# fixture is crafted so that EVERY RG matches the --prefix but ONLY ONE
+# passes the jq filter. If the filter were accidentally weakened (e.g.
+# `select(true)`, `.tags["auto-destroy"] != null`, or made case-insensitive),
+# the SCANNED count and DELETE count assertions below would fail.
 # ---------------------------------------------------------------------------
 echo "=== Test 10: client-side fallback filter (AZ_TAG_FILTER_FAIL=1) ==="
-FIX10="${TMP_BIN}/fix10.json"; mk_fixture "${FIX10}"
+FIX10="${TMP_BIN}/fix10.json"; mk_fallback_fixture "${FIX10}"
 LOG10="${TMP_BIN}/log10.txt"; : > "${LOG10}"
 OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX10}" AZ_LOG="${LOG10}" \
     AZ_TAG_FILTER_FAIL=1 \
     "${SUT}" --prefix rg-daedalus- 2>&1) || true
 
 assert_contains "${OUT}" "falling back to client-side filter"        "T10: fallback warning surfaced"
-# Same decisions as Test 1 (the canonical happy path):
-assert_contains "${OUT}" "Destroying rg-daedalus-test"               "T10: expired RG destroyed via fallback"
-assert_contains "${OUT}" "rg-daedalus-future: not yet expired"       "T10: future RG skipped via fallback"
-assert_contains "${OUT}" "missing expires-at tag"                    "T10: missing-tag warned via fallback"
-assert_contains "${OUT}" "unparseable expires-at"                    "T10: unparseable warned via fallback"
-assert_contains "${OUT}" "rg-other-prefix: skipping"                 "T10: out-of-prefix skipped via fallback"
-assert_contains "${OUT}" "Scanned 5 RGs"                             "T10: scanned 5"
+# Only the truly-tagged RG should survive the jq filter and be processed.
+assert_contains "${OUT}" "Destroying rg-daedalus-expired"            "T10: expired RG destroyed via fallback"
+# Post-filter, only 1 RG remains (the others are dropped by the jq filter
+# BEFORE the loop, so SCANNED reflects only the survivor).
+assert_contains "${OUT}" "Scanned 1 RGs"                             "T10: scanned 1 (jq filter discriminated)"
+assert_contains "${OUT}" "1 expired"                                 "T10: 1 expired"
 assert_contains "${OUT}" "1 destroyed"                               "T10: 1 destroyed"
 
 T10_DELETE_COUNT=$(grep -c "^DELETE " "${LOG10}" || true)
-assert_eq "${T10_DELETE_COUNT}" "1" "T10: exactly one delete (matches Test 1)"
-T10_DELETE_NAME=$(grep -c "^DELETE rg-daedalus-test$" "${LOG10}" || true)
-assert_eq "${T10_DELETE_NAME}" "1" "T10: delete targeted rg-daedalus-test (matches Test 1)"
+assert_eq "${T10_DELETE_COUNT}" "1" "T10: exactly one delete (only the truly-tagged-true RG)"
+T10_DELETE_NAME=$(grep -c "^DELETE rg-daedalus-expired$" "${LOG10}" || true)
+assert_eq "${T10_DELETE_NAME}" "1" "T10: delete targeted rg-daedalus-expired"
+
+# RGs that should be filtered out by the jq filter must NOT appear in any
+# "Destroying" log line and must NOT have triggered an `az group delete`.
+# These assertions are the regression guard: if the jq filter is weakened,
+# at least one of these will fail.
+for leaked in rg-daedalus-untagged rg-daedalus-other-tag rg-daedalus-wrong-case rg-daedalus-falsey; do
+    assert_not_contains "${OUT}" "Destroying ${leaked}"     "T10: ${leaked} not destroyed"
+    assert_not_contains "${OUT}" "[DRY-RUN] would destroy ${leaked}" "T10: ${leaked} not dry-run-destroyed"
+    LEAKED_DELETE=$(grep -c "^DELETE ${leaked}$" "${LOG10}" || true)
+    assert_eq "${LEAKED_DELETE}" "0" "T10: no DELETE invocation for ${leaked}"
+done
+
 # Confirm the --tag attempt happened first AND a no-tag fallback list followed.
 T10_TAG_ATTEMPT=$(grep -c -- "--tag auto-destroy=true" "${LOG10}" || true)
 [[ "${T10_TAG_ATTEMPT}" -ge 1 ]] && t_pass "T10: --tag form was attempted" \
