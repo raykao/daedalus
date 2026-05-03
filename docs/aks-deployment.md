@@ -530,15 +530,21 @@ kubectl create secret generic copilot-secret \
 
 ### A.4 Deploy with Helm by hand
 
-Run `helm upgrade --install daedalus deploy/helm/daedalus/` against the
-chart, layering the now-deleted Phase 4 overlay (path: `deploy/helm/` plus
-`values-aks` plus `.yaml`) with `-f`, `--namespace daedalus`,
-`--create-namespace`, and `--wait --timeout 5m`. The Phase 4 Make targets
-that wrapped this call (`helm-` prefixed `aks-deploy` / `aks-teardown` /
-`aks-status`) were removed in Phase 5.6 in favor of `make
-deploy-aks-test` / `make destroy-aks-test` / `make aks-status`. The
-overlay file itself was deleted in Phase 5.6 in favor of
-`deploy/helm/daedalus/values-aks-test.yaml`, which the Phase 5 deploy
+> The `-f` overlay (`deploy/helm/values-aks.yaml`) was deleted in Phase 5.6. The command below is preserved exactly as it ran in Phase 4; reproducing it today requires restoring that file from git history.
+
+```bash
+helm upgrade --install daedalus deploy/helm/daedalus/ \
+    -f deploy/helm/values-aks.yaml \
+    --namespace daedalus \
+    --create-namespace \
+    --wait --timeout 5m
+```
+
+The Phase 4 Make targets that wrapped this call (`helm-` prefixed
+`aks-deploy` / `aks-teardown` / `aks-status`) were removed in Phase 5.6
+in favor of `make deploy-aks-test` / `make destroy-aks-test` / `make
+aks-status`. The overlay file itself was deleted in Phase 5.6 in favor
+of `deploy/helm/daedalus/values-aks-test.yaml`, which the Phase 5 deploy
 script overrides via `--set`.
 
 ### A.5 Run the validation script
