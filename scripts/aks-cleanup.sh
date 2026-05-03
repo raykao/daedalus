@@ -235,6 +235,16 @@ if ! RG_LIST_JSON=$(az group list --tag auto-destroy=true --output json 2>/dev/n
     RG_LIST_JSON=$(echo "${RG_LIST_JSON}" | jq '[.[] | select(.tags["auto-destroy"] == "true")]')
 fi
 
+# Validate RG_LIST_JSON is a JSON array before the loop. A malformed value here
+# (non-JSON banner from older az CLI, MSAL consent text, etc.) would silently
+# yield zero loop iterations because process substitution exit codes are
+# invisible to set -e in the parent shell. Fail loudly instead.
+if ! echo "${RG_LIST_JSON}" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    error "az group list returned non-array JSON or invalid output."
+    error "First 200 chars of raw value: ${RG_LIST_JSON:0:200}"
+    exit 3
+fi
+
 NOW_EPOCH=$(date -u +%s)
 SCANNED=0
 EXPIRED=0

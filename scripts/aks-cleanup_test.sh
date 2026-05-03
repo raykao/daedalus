@@ -516,6 +516,41 @@ T10_FALLBACK_LIST=$(grep -cE "^group list --output json$" "${LOG10}" || true)
     || t_fail "T10: expected at least one no-tag 'group list --output json' invocation"
 
 # ---------------------------------------------------------------------------
+# Test 11: malformed (non-array) az group list output triggers exit 3 guard.
+#
+# Older `az` CLI versions or MSAL consent banners can print non-JSON to stdout
+# even with `--output json`. Without an explicit type-check guard, the
+# `while ... done < <(echo "${RG_LIST_JSON}" | jq -c '.[]')` loop silently
+# iterates zero times because the failing jq inside process substitution is
+# invisible to `set -e` in the parent shell, and the script falsely reports
+# "Scanned 0 RGs" with exit 0. The guard catches this transport-shaped
+# failure and exits 3 with a truncated preview of the offending input.
+# ---------------------------------------------------------------------------
+echo "=== Test 11: malformed (non-array) az group list output triggers exit 3 ==="
+FIX11="${TMP_BIN}/fix11.json"
+# Non-JSON banner content. Distinctive marker string we can grep for in the
+# truncated preview to prove the operator-facing diagnostic includes the raw
+# value (and not just a generic error).
+cat > "${FIX11}" <<'BANNER'
+WARNING: deprecated CLI version detected please upgrade
+[]
+BANNER
+LOG11="${TMP_BIN}/log11.txt"; : > "${LOG11}"
+set +e
+OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX11}" AZ_LOG="${LOG11}" \
+    "${SUT}" --prefix rg-daedalus- 2>&1)
+RC=$?
+set -e
+assert_eq "${RC}" "3" "T11: exit 3 on non-array az group list output"
+assert_contains "${OUT}" "non-array JSON or invalid output" "T11: error message identifies invalid output"
+assert_contains "${OUT}" "WARNING: deprecated CLI version detected" \
+    "T11: truncated preview surfaces raw banner for operator diagnosis"
+assert_not_contains "${OUT}" "Scanned" \
+    "T11: summary line not printed (guard exits before loop)"
+T11_DELETE_COUNT=$(grep -c "^DELETE " "${LOG11}" || true)
+assert_eq "${T11_DELETE_COUNT}" "0" "T11: no DELETE invocations recorded"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
