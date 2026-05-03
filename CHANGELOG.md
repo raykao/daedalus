@@ -14,7 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Terraform: GitHub Actions managed identity (`gha-identity` module) with federated credentials for `repo:raykao/daedalus:ref:refs/heads/main`, `repo:raykao/daedalus:pull_request`, and `repo:raykao/daedalus:environment:test`, granted AcrPush on the ACR. Outputs `gha_client_id`, `gha_tenant_id`, `gha_principal_id`, `gha_oidc_subjects`, and `subscription_id` for wiring into GitHub repo variables.
 - GitHub Actions workflow `.github/workflows/build-and-publish.yml` (`workflow_dispatch`) that builds proxy, mock-acp, and echo-a2a as multi-arch (linux/amd64, linux/arm64) images, publishes to GHCR, optionally mirrors identical digests to ACR via OIDC (no static secrets), runs Trivy scans (warn HIGH, block CRITICAL), and emits build provenance attestations pushed to the registry.
 
+### Fixed
+
+- AKS e2e harness now publishes tasks to the worker's queue subject (default `agent.tasks.copilot`, override via `WORKER_SUBJECT`), not a per-task subject - fixes silent timeout against AKS deployments where the proxy uses an exact-match consumer filter. Caught by independent second-opinion review.
+
 ### Changed
+
+- AKS e2e harness preflight no longer calls `CreateOrUpdateStream` - it now creates streams only when missing, preserving any operator-tuned config on persistent clusters.
 
 - Terraform: `github_oidc_subjects` (root) and `subjects` (gha-identity module) now require every entry to start with `repo:<github_owner>/<github_repo>:`, refusing cross-repo OIDC trust at validation time instead of silently federating a UAMI with AcrPush to another repo's workflows. Bumped root `required_version` to `>= 1.9.0` so cross-variable references are available in `validation` blocks.
 - Terraform: `gha-identity` module now suffixes each federated credential resource name with a 6-char hash of the full subject (e.g. `gha-fic-main-3f9a2b`) so subjects whose human-readable parts collapse to the same short name (e.g. `refs/heads/feat-foo` vs `refs/heads/feat/foo`) no longer collide on Azure mid-apply.

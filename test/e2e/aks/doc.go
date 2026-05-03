@@ -32,6 +32,17 @@
 //   - RESOURCE_GROUP Azure resource group name, logged on test exit to aid manual cleanup
 //   - EXPIRES_AT     ISO-8601 timestamp matching the cluster's `expires-at` resource-group
 //     tag; logged on test exit only (used purely for operator hint)
+//   - WORKER_SUBJECT NATS subject the proxy worker is listening on; defaults to
+//     "agent.tasks.copilot" (matches values-aks.yaml / values-aks-test.yaml).
+//     Override only if the deployed Helm values use a non-default workers[].queueSubject.
+//
+// # Stream bootstrap
+//
+// First-time bootstrap: this harness creates AGENT_RESULTS and AGENT_STATUS
+// JetStream streams if missing. The proxy creates AGENT_TASKS itself but does
+// not create the result/status streams. After first run, all three streams are
+// persistent and the harness preserves their existing configuration (it never
+// updates a stream it did not create on this run).
 //
 // # Cluster assumption
 //
