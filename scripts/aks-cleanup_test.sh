@@ -88,6 +88,14 @@ cat > "${TMP_BIN}/az" <<'AZSHIM'
 echo "$@" >> "${AZ_LOG:-/dev/null}"
 case "$1 ${2:-}" in
     "group list")
+        # Optional fault injection: simulate an older az/provider that does
+        # not understand `--tag` filtering. Only affects the --tag form so
+        # the script's fallback path (az group list | jq client-side filter)
+        # is exercised.
+        if [[ "${AZ_TAG_FILTER_FAIL:-0}" == "1" && "$*" == *"--tag"* ]]; then
+            echo "az: --tag filter unsupported in this provider version" >&2
+            exit 1
+        fi
         if [[ -n "${AKS_CLEANUP_TEST_FIXTURE:-}" && -f "${AKS_CLEANUP_TEST_FIXTURE}" ]]; then
             cat "${AKS_CLEANUP_TEST_FIXTURE}"
         else
@@ -370,6 +378,38 @@ DELETE_VALID=$(grep -c "^DELETE rg-daedalus-valid$" "${LOG9}" || true)
 assert_eq "${DELETE_VALID}" "1" "T9: delete targeted the valid RG"
 NO_PERMISSIVE=$(grep -cE "^DELETE rg-daedalus-(yesterday|now|zero)$" "${LOG9}" || true)
 assert_eq "${NO_PERMISSIVE}" "0" "T9: no deletes for permissively-parseable RGs"
+
+# ---------------------------------------------------------------------------
+# Test 10: client-side fallback when `az group list --tag` is unsupported
+# ---------------------------------------------------------------------------
+echo "=== Test 10: client-side fallback filter (AZ_TAG_FILTER_FAIL=1) ==="
+FIX10="${TMP_BIN}/fix10.json"; mk_fixture "${FIX10}"
+LOG10="${TMP_BIN}/log10.txt"; : > "${LOG10}"
+OUT=$(PATH="${SHIMMED_PATH}" AKS_CLEANUP_TEST_FIXTURE="${FIX10}" AZ_LOG="${LOG10}" \
+    AZ_TAG_FILTER_FAIL=1 \
+    "${SUT}" --prefix rg-daedalus- 2>&1) || true
+
+assert_contains "${OUT}" "falling back to client-side filter"        "T10: fallback warning surfaced"
+# Same decisions as Test 1 (the canonical happy path):
+assert_contains "${OUT}" "Destroying rg-daedalus-test"               "T10: expired RG destroyed via fallback"
+assert_contains "${OUT}" "rg-daedalus-future: not yet expired"       "T10: future RG skipped via fallback"
+assert_contains "${OUT}" "missing expires-at tag"                    "T10: missing-tag warned via fallback"
+assert_contains "${OUT}" "unparseable expires-at"                    "T10: unparseable warned via fallback"
+assert_contains "${OUT}" "rg-other-prefix: skipping"                 "T10: out-of-prefix skipped via fallback"
+assert_contains "${OUT}" "Scanned 5 RGs"                             "T10: scanned 5"
+assert_contains "${OUT}" "1 destroyed"                               "T10: 1 destroyed"
+
+T10_DELETE_COUNT=$(grep -c "^DELETE " "${LOG10}" || true)
+assert_eq "${T10_DELETE_COUNT}" "1" "T10: exactly one delete (matches Test 1)"
+T10_DELETE_NAME=$(grep -c "^DELETE rg-daedalus-test$" "${LOG10}" || true)
+assert_eq "${T10_DELETE_NAME}" "1" "T10: delete targeted rg-daedalus-test (matches Test 1)"
+# Confirm the --tag attempt happened first AND a no-tag fallback list followed.
+T10_TAG_ATTEMPT=$(grep -c -- "--tag auto-destroy=true" "${LOG10}" || true)
+[[ "${T10_TAG_ATTEMPT}" -ge 1 ]] && t_pass "T10: --tag form was attempted" \
+    || t_fail "T10: expected --tag form to be attempted at least once"
+T10_FALLBACK_LIST=$(grep -cE "^group list --output json$" "${LOG10}" || true)
+[[ "${T10_FALLBACK_LIST}" -ge 1 ]] && t_pass "T10: fallback no-tag list invoked" \
+    || t_fail "T10: expected at least one no-tag 'group list --output json' invocation"
 
 # ---------------------------------------------------------------------------
 # Summary
