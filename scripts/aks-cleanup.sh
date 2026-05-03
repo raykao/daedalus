@@ -291,11 +291,14 @@ while IFS= read -r rg_json; do
                     info "${NAME}: re-issuing delete (already in Deleting state, harmless)"
                 fi
                 info "Destroying ${NAME} (expired ${DELTA}s ago)..."
-                if az group delete --name "${NAME}" --yes --no-wait >/dev/null 2>&1; then
+                # Capture stderr so AuthorizationFailed and similar messages
+                # surface in the warning instead of being swallowed.
+                DELETE_ERR=$(az group delete --name "${NAME}" --yes --no-wait 2>&1 >/dev/null) && DELETE_RC=0 || DELETE_RC=$?
+                if [[ "${DELETE_RC}" -eq 0 ]]; then
                     pass "${NAME}: delete requested (--no-wait)"
                     DESTROYED=$((DESTROYED + 1))
                 else
-                    warn "${NAME}: az group delete returned non-zero - continuing"
+                    warn "${NAME}: az group delete returned non-zero - continuing (stderr: ${DELETE_ERR})"
                     HAD_FAILURES=1
                 fi
             fi

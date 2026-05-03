@@ -303,6 +303,11 @@ assert_contains "${OUT}" "rg-daedalus-fail"            "T7: failing RG mentioned
 assert_contains "${OUT}" "rg-daedalus-ok"              "T7: ok RG also processed"
 DELETE_COUNT=$(grep -c "^DELETE " "${LOG7}" || true)
 assert_eq "${DELETE_COUNT}" "2"                        "T7: both deletes attempted"
+# Fix 4: stderr from az group delete is now surfaced in the warning so
+# operators can see AuthorizationFailed et al. The shim writes
+# "simulated delete failure for rg-daedalus-fail" to stderr.
+assert_contains "${OUT}" "stderr: simulated delete failure for rg-daedalus-fail" \
+    "T7: az delete stderr surfaced in warning"
 
 # ---------------------------------------------------------------------------
 # Test 8: provisioningState=Deleting is logged but still attempts delete
