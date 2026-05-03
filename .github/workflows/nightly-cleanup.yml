@@ -46,6 +46,16 @@
 # - Slack/email notification on cleanup failure (Phase 6)
 # - Multi-subscription cleanup
 # - Per-PR ephemeral environments
+#
+# ## Design note: dispatch input pass-through
+#
+# An empty `prefix` on `workflow_dispatch` is deliberately passed through
+# verbatim to the cleanup script, where it triggers the safety net
+# (exit 2) rather than being silently substituted with the default. This
+# lets operators test the safety gate from the Actions UI without
+# modifying the script. GHA expressions cannot distinguish "supplied but
+# empty" from "not supplied", so the dispatch-vs-schedule branching is
+# done in bash using an explicit IS_DISPATCH flag.
 
 name: AKS Nightly Cleanup
 
@@ -82,6 +92,11 @@ jobs:
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest
+    # Hard cap on the job. The full path (login + list + delete --no-wait)
+    # typically completes in well under a minute; 15 minutes is a generous
+    # ceiling that prevents a hung `az` call from holding the concurrency
+    # slot for the GHA default of 360 minutes.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,15 +110,30 @@ jobs:
 
       - name: Run aks-cleanup.sh
         env:
-          # Schedule trigger has no inputs - default to a real (non-dry) run.
-          # Dispatch trigger uses the user-provided checkbox.
-          DRY_RUN_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
-          PREFIX_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.prefix || 'rg-daedalus-' }}
+          # Pass dispatch inputs through verbatim. The bash layer below
+          # decides how to interpret them - in particular, an empty
+          # DISPATCH_PREFIX must reach the script unchanged so its safety
+          # net can fire (see design note in the workflow header).
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          DISPATCH_PREFIX: ${{ inputs.prefix }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          args=( "--prefix" "${PREFIX_INPUT}" )
-          if [ "${DRY_RUN_INPUT}" = "true" ]; then
-            args+=( "--dry-run" )
+          if [ "${IS_DISPATCH}" = "true" ]; then
+            # On dispatch, honor the operator's input verbatim - even if
+            # empty. An empty prefix triggers the script's safety net
+            # (exit 2) so an operator can deliberately test the gate
+            # without it being silently rewritten by the workflow
+            # expression layer.
+            args=( "--prefix" "${DISPATCH_PREFIX}" )
+            if [ "${DISPATCH_DRY_RUN}" = "true" ]; then
+              args+=( "--dry-run" )
+            fi
+          else
+            # Scheduled (or other non-dispatch) triggers always run the
+            # standard scoped cleanup against the test prefix. No
+            # dry-run on schedule.
+            args=( "--prefix" "rg-daedalus-" )
           fi
           echo "Invoking: scripts/aks-cleanup.sh ${args[*]}"
           set +e
