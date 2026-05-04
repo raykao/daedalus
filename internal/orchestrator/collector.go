@@ -10,7 +10,14 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerName is the OTel instrumentation library name for collector spans.
+const tracerName = "github.com/raykao/daedalus/internal/orchestrator"
 
 // ResultCollector subscribes to NATS result and status subjects and provides
 // synchronous waiting for individual task outcomes.
@@ -137,6 +144,31 @@ func (rc *ResultCollector) WaitForAll(ctx context.Context, taskIDs []string) (ma
 	return out, firstErr
 }
 
+// applyMetadataTraceFallback reattaches a trace_id taken from the message
+// envelope (Task.Metadata["trace_id"]) as a remote parent on ctx, but only if
+// the incoming ctx does not already carry a valid SpanContext from NATS
+// headers. NATS headers (W3C traceparent) win when present because they carry
+// both trace_id and the publisher's span_id; metadata-only carries trace_id
+// alone and produces a remote root span within the existing trace.
+func applyMetadataTraceFallback(ctx context.Context, traceIDFromMetadata string) context.Context {
+	if traceIDFromMetadata == "" {
+		return ctx
+	}
+	if trace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
+	tid, err := trace.TraceIDFromHex(traceIDFromMetadata)
+	if err != nil {
+		return ctx
+	}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    tid,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     true,
+	})
+	return trace.ContextWithRemoteSpanContext(ctx, sc)
+}
+
 // handleResult processes an incoming message on agent.results.<taskID>.
 func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 	taskID := extractSuffix(msg.Subject, "agent.results.")
@@ -144,6 +176,12 @@ func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 		rc.logger.Warn("collector: could not extract taskID from subject", "subject", msg.Subject)
 		return
 	}
+
+	// Reattach the trace context from the publisher's NATS headers. If
+	// headers are absent (e.g. legacy publishers), fall back to the
+	// trace_id stamped in Task.Metadata. We then emit a
+	// "collector.receive.result" span that re-joins the original trace.
+	ctx := telemetry.ExtractNATSHeaders(context.Background(), msg.Header)
 
 	var task a2a.Task
 	if err := json.Unmarshal(msg.Data, &task); err != nil {
@@ -159,6 +197,22 @@ func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 	if task.ID != "" {
 		taskID = task.ID
 	}
+
+	traceIDFromMetadata, _ := task.Metadata["trace_id"].(string)
+	ctx = applyMetadataTraceFallback(ctx, traceIDFromMetadata)
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "collector.receive.result",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("daedalus.task.id", taskID),
+			attribute.String("daedalus.task.state", string(task.Status.State)),
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject),
+			attribute.String("daedalus.task.metadata.trace_id", traceIDFromMetadata),
+		),
+	)
+	defer span.End()
+	_ = ctx
 
 	tr := &TaskResult{
 		TaskID: taskID,
@@ -183,6 +237,10 @@ func (rc *ResultCollector) handleStatus(msg *nats.Msg) {
 		return
 	}
 
+	// Reattach trace context from NATS headers so the status span joins the
+	// publisher's trace.
+	ctx := telemetry.ExtractNATSHeaders(context.Background(), msg.Header)
+
 	var status a2a.TaskStatus
 	if err := json.Unmarshal(msg.Data, &status); err != nil {
 		rc.logger.Debug("collector: unmarshal status failed",
@@ -191,6 +249,19 @@ func (rc *ResultCollector) handleStatus(msg *nats.Msg) {
 		)
 		return
 	}
+
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "collector.receive.status",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("daedalus.task.id", taskID),
+			attribute.String("daedalus.task.state", string(status.State)),
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject),
+		),
+	)
+	defer span.End()
+	_ = ctx
 
 	rc.logger.Info("collector: status update",
 		"taskID", taskID,

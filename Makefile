@@ -1,4 +1,5 @@
 .PHONY: test-contract test-conformance test test-integration test-smoke \
+        test-trace-propagation \
         test-aks-e2e \
         aks-logs \
         deploy-aks-test destroy-aks-test aks-credentials aks-status \
@@ -37,6 +38,14 @@ test:
 test-integration:
 	docker compose -f deploy/docker/docker-compose.yml build --quiet
 	go test ./test/integration/... -tags=integration -v -count=1 -timeout=120s
+
+# test-trace-propagation - Phase 6.1 integration test that asserts W3C
+# TraceContext propagates across every hop of the daedalus task pipeline
+# (publish -> consume -> proxy.handle -> ACP -> result publish ->
+# collector). Runs 100 concurrent tasks and verifies the per-task span
+# tree. Pure in-process: embeds NATS and a fake ACP server, no Docker.
+test-trace-propagation:
+	go test ./test/integration/trace-propagation/... -tags=integration -v -count=1 -timeout=120s
 
 test-smoke:
 	@echo "Requires GITHUB_TOKEN with Copilot access"

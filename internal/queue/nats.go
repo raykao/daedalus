@@ -9,7 +9,15 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/raykao/daedalus/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerName is the instrumentation library name for queue spans.
+const tracerName = "github.com/raykao/daedalus/internal/queue"
 
 const (
 	defaultAckWait      = 30 * time.Second
@@ -166,14 +174,35 @@ func (c *Consumer) Run(ctx context.Context, handler MessageHandler) error {
 
 func (c *Consumer) processMessage(ctx context.Context, msg jetstream.Msg, handler MessageHandler) {
 	meta, _ := msg.Metadata()
+
+	// Extract trace context from NATS message headers (W3C traceparent).
+	// If the publisher injected headers, the consume span becomes a child
+	// of the publish span via OTel's TraceContext propagator. If not, this
+	// is a no-op and the consume span starts a fresh trace.
+	consumeCtx := telemetry.ExtractNATSHeaders(ctx, msg.Headers())
+	tracer := otel.Tracer(tracerName)
+	consumeCtx, span := tracer.Start(consumeCtx, "nats.consume",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject()),
+			attribute.String("messaging.operation", "receive"),
+			attribute.Int64("messaging.message.body.size", int64(len(msg.Data()))),
+			attribute.String("messaging.nats.stream", c.stream),
+		),
+	)
+	defer span.End()
+
 	c.logger.Info("nats: processing message",
 		"subject", msg.Subject(),
 		"numDelivered", meta.NumDelivered,
 		"sequence", meta.Sequence.Stream,
 	)
 
-	err := handler(ctx, msg.Data())
+	err := handler(consumeCtx, msg.Data())
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		c.logger.Error("nats: handler error", "err", err, "subject", msg.Subject())
 		// On permanent failure (max deliveries reached), terminate
 		if meta.NumDelivered >= uint64(defaultMaxDeliver) {
@@ -190,6 +219,8 @@ func (c *Consumer) processMessage(ctx context.Context, msg jetstream.Msg, handle
 	}
 
 	if ackErr := msg.Ack(); ackErr != nil {
+		span.RecordError(ackErr)
+		span.SetStatus(codes.Error, ackErr.Error())
 		c.logger.Error("nats: ack failed", "err", ackErr)
 	}
 }
@@ -199,14 +230,37 @@ func (c *Consumer) Close() {
 	c.nc.Drain()
 }
 
-// PublishJSON serializes v and publishes it to subject
+// PublishJSON serializes v and publishes it to subject. Trace context from
+// ctx is injected into NATS message headers as W3C traceparent so consumers
+// can stitch their spans into the same trace. A "nats.publish" producer span
+// is emitted around the publish call.
 func (p *Publisher) PublishJSON(ctx context.Context, subject string, v interface{}) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	_, err = p.js.Publish(ctx, subject, data)
-	if err != nil {
+
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "nats.publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", subject),
+			attribute.String("messaging.operation", "publish"),
+			attribute.Int64("messaging.message.body.size", int64(len(data))),
+		),
+	)
+	defer span.End()
+
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    data,
+		Header:  telemetry.InjectNATSHeaders(ctx, nats.Header{}),
+	}
+
+	if _, err := p.js.PublishMsg(ctx, msg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("nats: publish to %s: %w", subject, err)
 	}
 	p.logger.Debug("nats: published", "subject", subject, "bytes", len(data))
