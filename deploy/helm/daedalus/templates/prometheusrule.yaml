@@ -23,15 +23,20 @@ spec:
             description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been in ImagePullBackOff for at least 2 minutes. The worker cannot start until the image becomes available."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-image-pull-backoff"
 
+        # Kubernetes CrashLoopBackOff caps backoff at ~5 min between restarts,
+        # so even worst-case real flapping only reaches ~0.005 restarts/sec
+        # over a 10m window. Fire on any sustained restart activity (> 0)
+        # held for 10m; the original > 0.3/sec threshold (180 restarts in
+        # 10m) is unreachable. See Pass 1 spec corrections in observability.md.
         - alert: WorkerCrashLoopBackOff
-          expr: rate(kube_pod_container_status_restarts_total{pod=~"{{ $workerPrefix }}.*"}[10m]) > 0.3
-          for: 0m
+          expr: rate(kube_pod_container_status_restarts_total{pod=~"{{ $workerPrefix }}.*"}[10m]) > 0
+          for: 10m
           labels:
             severity: page
             daedalus_component: worker
           annotations:
             summary: "Daedalus worker pod is crash-looping"
-            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has restarted at a sustained rate above 0.3/sec over the last 10 minutes."
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously for the last 10 minutes."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-crashloop"
 
         - alert: OrchestratorDown

@@ -110,7 +110,7 @@ Add Prometheus / Alertmanager rules under
 | Alert | Condition | Severity | Runbook anchor |
 |-------|-----------|----------|----------------|
 | `WorkerImagePullBackOff` | `kube_pod_container_status_waiting_reason{reason="ImagePullBackOff", pod=~"daedalus-worker-.*"} > 0` for 2m | page | `worker-image-pull-backoff` |
-| `WorkerCrashLoopBackOff` | `rate(kube_pod_container_status_restarts_total{pod=~"daedalus-worker-.*"}[10m]) > 0.3` | page | `worker-crashloop` |
+| `WorkerCrashLoopBackOff` | `rate(kube_pod_container_status_restarts_total{pod=~"daedalus-worker-.*"}[10m]) > 0` for 10m | page | `worker-crashloop` |
 | `NATSConsumerLagUnbounded` | `delta(nats_jetstream_consumer_num_pending[10m]) > 0` AND `rate(nats_jetstream_consumer_acks_total[10m]) == 0` | page | `nats-consumer-lag` |
 | `KEDAScalerError` | `rate(keda_scaler_errors_total[5m]) > 0` | page | `keda-scaler-error` |
 | `OTelCollectorDown` | `up{job="otel-collector"} == 0` for 5m | page | `otel-collector-down` |
