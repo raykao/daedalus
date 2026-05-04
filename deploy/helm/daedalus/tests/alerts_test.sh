@@ -63,6 +63,12 @@ out_off=$(helm template "$RELEASE" "$CHART_DIR" --set alerting.enabled=false)
 rule_count=$(printf '%s' "$out_off" | grep -cE "^kind: (PrometheusRule|AlertmanagerConfig)" || true)
 assert_eq "no alerting resources rendered" "0" "$rule_count"
 
+echo "[test] alertmanagerConfig.enabled=false leaves PrometheusRule but suppresses AlertmanagerConfig"
+out_amc_off=$(helm template "$RELEASE" "$CHART_DIR" --set alerting.alertmanagerConfig.enabled=false)
+assert_match "PrometheusRule still renders" "kind: PrometheusRule" "$out_amc_off"
+amc_count=$(printf '%s' "$out_amc_off" | grep -cE "^kind: AlertmanagerConfig" || true)
+assert_eq "AlertmanagerConfig suppressed" "0" "$amc_count"
+
 echo "[test] receiver.type=mattermost renders a webhook receiver"
 out_mm=$(helm template "$RELEASE" "$CHART_DIR" \
   --set alerting.alertmanagerConfig.receiver.type=mattermost \
