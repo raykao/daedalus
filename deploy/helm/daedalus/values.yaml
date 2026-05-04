@@ -242,6 +242,6 @@ alerting:
       #              # requires an in-cluster translator; see runbook
       # github:      { webhook: "http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook" }
       #              # requires an in-cluster translator; see runbook
-      # pagerduty:   { routingKeySecret: { name: "pagerduty-key", key: "routing-key" } }
+      # pagerduty:   { routingKeySecret: { name: "pagerduty-routing-key", key: "routing-key" } }
       #              # native; no translator needed
       config: {}

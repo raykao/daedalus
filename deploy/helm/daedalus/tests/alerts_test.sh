@@ -79,9 +79,9 @@ assert_match "mattermost webhookConfigs" "webhookConfigs:" "$out_mm"
 echo "[test] receiver.type=pagerduty renders a pagerduty receiver"
 out_pd=$(helm template "$RELEASE" "$CHART_DIR" \
   --set alerting.alertmanagerConfig.receiver.type=pagerduty \
-  --set alerting.alertmanagerConfig.receiver.config.routingKeySecret.name=pd-secret)
+  --set alerting.alertmanagerConfig.receiver.config.routingKeySecret.name=pagerduty-routing-key)
 assert_match "pagerdutyConfigs block"  "pagerdutyConfigs:" "$out_pd"
-assert_match "pagerduty secret name"   'name: "pd-secret"' "$out_pd"
+assert_match "pagerduty secret name"   'name: "pagerduty-routing-key"' "$out_pd"
 
 echo "[test] receiver.type=github renders a webhook receiver"
 out_gh=$(helm template "$RELEASE" "$CHART_DIR" \
