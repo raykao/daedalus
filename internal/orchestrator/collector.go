@@ -144,6 +144,31 @@ func (rc *ResultCollector) WaitForAll(ctx context.Context, taskIDs []string) (ma
 	return out, firstErr
 }
 
+// applyMetadataTraceFallback reattaches a trace_id taken from the message
+// envelope (Task.Metadata["trace_id"]) as a remote parent on ctx, but only if
+// the incoming ctx does not already carry a valid SpanContext from NATS
+// headers. NATS headers (W3C traceparent) win when present because they carry
+// both trace_id and the publisher's span_id; metadata-only carries trace_id
+// alone and produces a remote root span within the existing trace.
+func applyMetadataTraceFallback(ctx context.Context, traceIDFromMetadata string) context.Context {
+	if traceIDFromMetadata == "" {
+		return ctx
+	}
+	if trace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
+	tid, err := trace.TraceIDFromHex(traceIDFromMetadata)
+	if err != nil {
+		return ctx
+	}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    tid,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     true,
+	})
+	return trace.ContextWithRemoteSpanContext(ctx, sc)
+}
+
 // handleResult processes an incoming message on agent.results.<taskID>.
 func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 	taskID := extractSuffix(msg.Subject, "agent.results.")
@@ -173,8 +198,9 @@ func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 		taskID = task.ID
 	}
 
-	tracer := otel.Tracer(tracerName)
 	traceIDFromMetadata, _ := task.Metadata["trace_id"].(string)
+	ctx = applyMetadataTraceFallback(ctx, traceIDFromMetadata)
+	tracer := otel.Tracer(tracerName)
 	ctx, span := tracer.Start(ctx, "collector.receive.result",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(

@@ -10,6 +10,12 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/raykao/daedalus/internal/a2a"
 	"github.com/raykao/daedalus/internal/orchestrator"
+	"github.com/raykao/daedalus/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // startEmbeddedNATS starts an in-process NATS server (no JetStream needed for
@@ -258,4 +264,190 @@ func TestResultCollector_StatusUpdateForTerminalStateUnblocksWaiter(t *testing.T
 	if result.Status != a2a.TaskStateFailed {
 		t.Errorf("expected status %q, got %q", a2a.TaskStateFailed, result.Status)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Trace-context fallback tests
+// ---------------------------------------------------------------------------
+
+// newTracerProviderForTest installs an in-memory tracer provider with the
+// W3C TraceContext + Baggage propagator so the collector's header-extract
+// path is exercised. It returns the exporter for span inspection.
+func newTracerProviderForTest(t *testing.T) *tracetest.InMemoryExporter {
+t.Helper()
+exp := tracetest.NewInMemoryExporter()
+tp := sdktrace.NewTracerProvider(
+sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exp)),
+sdktrace.WithSampler(sdktrace.AlwaysSample()),
+)
+otel.SetTracerProvider(tp)
+otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+propagation.TraceContext{},
+propagation.Baggage{},
+))
+t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+return exp
+}
+
+// publishTaskWithHeaders publishes a Task to agent.results.<taskID> with the
+// supplied NATS headers. headers may be nil to simulate a header-less
+// publisher.
+func publishTaskWithHeaders(t *testing.T, nc *nats.Conn, taskID string, task a2a.Task, headers nats.Header) {
+t.Helper()
+data, err := json.Marshal(task)
+if err != nil {
+t.Fatalf("marshal task: %v", err)
+}
+msg := &nats.Msg{
+Subject: "agent.results." + taskID,
+Data:    data,
+Header:  headers,
+}
+if err := nc.PublishMsg(msg); err != nil {
+t.Fatalf("publish %s: %v", taskID, err)
+}
+}
+
+// findSpan returns the first SpanStub matching name, or nil.
+func findSpan(spans tracetest.SpanStubs, name string) *tracetest.SpanStub {
+for i := range spans {
+if spans[i].Name == name {
+return &spans[i]
+}
+}
+return nil
+}
+
+// TestResultCollector_MetadataTraceIDFallback_NoHeaders asserts that when a
+// publisher omits NATS headers but stamps trace_id into Task.Metadata, the
+// emitted collector.receive.result span joins the metadata trace as a remote
+// root (no parent span_id, but trace_id matches).
+func TestResultCollector_MetadataTraceIDFallback_NoHeaders(t *testing.T) {
+exp := newTracerProviderForTest(t)
+
+url := startEmbeddedNATS(t)
+nc := connectNATS(t, url)
+rc := orchestrator.NewResultCollector(nc, nil)
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+startedCh := make(chan struct{})
+go func() {
+close(startedCh)
+rc.Start(ctx) //nolint:errcheck
+}()
+<-startedCh
+time.Sleep(20 * time.Millisecond)
+
+const traceHex = "0123456789abcdef0123456789abcdef"
+want, err := oteltrace.TraceIDFromHex(traceHex)
+if err != nil {
+t.Fatalf("parse trace id: %v", err)
+}
+
+task := a2a.Task{
+ID:     "task-meta-fallback",
+Status: a2a.TaskStatus{State: a2a.TaskStateCompleted},
+Metadata: map[string]any{
+"trace_id": traceHex,
+},
+}
+go func() {
+time.Sleep(30 * time.Millisecond)
+publishTaskWithHeaders(t, nc, "task-meta-fallback", task, nil)
+}()
+
+if _, err := rc.WaitFor(ctx, "task-meta-fallback"); err != nil {
+t.Fatalf("WaitFor: %v", err)
+}
+
+// Stop the collector so its in-flight subscriptions drain, then flush.
+cancel()
+time.Sleep(50 * time.Millisecond)
+
+spans := exp.GetSpans()
+span := findSpan(spans, "collector.receive.result")
+if span == nil {
+t.Fatalf("collector.receive.result span not emitted; got %d spans", len(spans))
+}
+if span.SpanContext.TraceID() != want {
+t.Errorf("span trace_id = %s, want %s", span.SpanContext.TraceID(), want)
+}
+if !span.Parent.IsRemote() {
+t.Errorf("expected parent to be remote (metadata fallback path); got remote=%v valid=%v",
+span.Parent.IsRemote(), span.Parent.IsValid())
+}
+// The metadata-only fallback supplies trace_id but no parent span_id,
+// so the parent SpanID must be zero.
+var zeroSpan oteltrace.SpanID
+if span.Parent.SpanID() != zeroSpan {
+t.Errorf("expected zero parent span_id under metadata fallback, got %s", span.Parent.SpanID())
+}
+}
+
+// TestResultCollector_NATSHeaderWinsOverMetadata asserts that when both NATS
+// headers and Task.Metadata["trace_id"] are present, the header wins (the
+// fallback is NOT taken). The header parent supplies both trace_id and
+// span_id; the metadata trace_id is ignored if it disagrees.
+func TestResultCollector_NATSHeaderWinsOverMetadata(t *testing.T) {
+exp := newTracerProviderForTest(t)
+
+url := startEmbeddedNATS(t)
+nc := connectNATS(t, url)
+rc := orchestrator.NewResultCollector(nc, nil)
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+startedCh := make(chan struct{})
+go func() {
+close(startedCh)
+rc.Start(ctx) //nolint:errcheck
+}()
+<-startedCh
+time.Sleep(20 * time.Millisecond)
+
+// Build a real publisher span so we get a valid traceparent header.
+tracer := otel.Tracer("test.collector-fallback")
+pubCtx, pubSpan := tracer.Start(context.Background(), "test.publish")
+headerTraceID := pubSpan.SpanContext().TraceID()
+headerSpanID := pubSpan.SpanContext().SpanID()
+headers := telemetry.InjectNATSHeaders(pubCtx, nats.Header{})
+pubSpan.End()
+
+// Metadata carries a DIFFERENT trace id; it must be ignored because
+// the header path provides a valid SpanContext.
+const metaHex = "deadbeefdeadbeefdeadbeefdeadbeef"
+task := a2a.Task{
+ID:     "task-header-wins",
+Status: a2a.TaskStatus{State: a2a.TaskStateCompleted},
+Metadata: map[string]any{
+"trace_id": metaHex,
+},
+}
+go func() {
+time.Sleep(30 * time.Millisecond)
+publishTaskWithHeaders(t, nc, "task-header-wins", task, headers)
+}()
+
+if _, err := rc.WaitFor(ctx, "task-header-wins"); err != nil {
+t.Fatalf("WaitFor: %v", err)
+}
+cancel()
+time.Sleep(50 * time.Millisecond)
+
+spans := exp.GetSpans()
+span := findSpan(spans, "collector.receive.result")
+if span == nil {
+t.Fatalf("collector.receive.result span not emitted; got %d spans", len(spans))
+}
+if span.SpanContext.TraceID() != headerTraceID {
+t.Errorf("trace_id = %s, want header trace %s (metadata trace was %s)",
+span.SpanContext.TraceID(), headerTraceID, metaHex)
+}
+if span.Parent.SpanID() != headerSpanID {
+t.Errorf("parent span_id = %s, want %s (header parent should win)",
+span.Parent.SpanID(), headerSpanID)
+}
 }
