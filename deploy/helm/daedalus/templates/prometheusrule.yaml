@@ -74,8 +74,16 @@ spec:
 
     - name: daedalus.dependencies
       rules:
+        # Original spec used rate(nats_jetstream_consumer_acks_total[10m]) == 0
+        # but nats-surveyor exposes only gauges; that counter does not exist.
+        # Use gauges surveyor reliably exposes: pending count growing over 10m
+        # AND non-trivially sized. The 100-message floor avoids paging on
+        # transient single-digit pending blips when no consumer is attached.
         - alert: NATSConsumerLagUnbounded
-          expr: delta(nats_jetstream_consumer_num_pending[10m]) > 0 and rate(nats_jetstream_consumer_acks_total[10m]) == 0
+          expr: |
+            delta(nats_jetstream_consumer_num_pending[10m]) > 0
+            and
+            nats_jetstream_consumer_num_pending > 100
           for: 0m
           labels:
             severity: page
