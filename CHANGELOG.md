@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **MkDocs Material documentation site scaffolded.** New public docs site
+  served at <https://daedalus.raykao.io> via GitHub Pages, built with
+  MkDocs Material 9.5.x and deployed by `.github/workflows/docs.yml` on
+  every push to `main` that touches `docs/**`, `mkdocs.yml`,
+  `requirements-docs.txt`, or the workflow itself. PRs build with
+  `mkdocs build --strict` (no deploy) so broken links and missing nav
+  entries fail review. Existing `docs/*.md` content was wired into the
+  nav unmodified - no source markdown was rewritten. Internal planning
+  docs (`phase5-epic-draft.md`, `phase5-plan.md`, `phase6-options.md`,
+  `plan.md`) are listed under `exclude_docs` so they remain in the repo
+  but never publish. Mermaid diagrams already embedded in the markdown
+  render via the `pymdownx.superfences` custom-fences config. The
+  custom domain is preserved across deploys by `docs/CNAME` (copied
+  into `site/CNAME` by the mkdocs build). Files added: `mkdocs.yml`,
+  `requirements-docs.txt`, `docs/index.md`, `docs/CNAME`,
+  `.github/workflows/docs.yml`. `.gitignore` updated to ignore `site/`
+  and `.venv-docs/`.
+  **One-time manual setup required** (documented in the workflow
+  header): GitHub repo Settings -> Pages -> Source = "GitHub Actions",
+  custom domain = `daedalus.raykao.io`, and a DNS CNAME record
+  `daedalus.raykao.io -> raykao.github.io.` at the registrar.
+
 - **Phase 6 sub-task 6.1 - trace propagation audit, gap-fill, and 100-task concurrent integration test.** Walked every hop of the task pipeline (orchestrator publish, NATS consume, proxy.Handle, ACP `session/new`, ACP `session/prompt`, ACP `session/update` stream, result publish, collector receive) and identified six gaps. Closed all six with the smallest possible code change: `internal/queue/nats.go` now injects W3C `traceparent` into NATS message headers on publish and extracts on consume (each emits a bounded-name `nats.publish` / `nats.consume` span; the subject lives on the canonical `messaging.destination.name` attribute, not in the span name, so dashboard aggregation by operation name stays tractable as task volume grows); `internal/proxy/handler.go` now starts a `proxy.handle` span and wraps ACP calls in `acp.session.new` / `acp.session.prompt` client-kind spans, plus stamps `trace_id` into `Task.Metadata` for downstream consumers that cannot read NATS headers, and reattaches `req.Message.Metadata["trace_id"]` as a remote parent on the proxy side when NATS headers are absent; `internal/orchestrator/collector.go` extracts trace context from result/status NATS headers and additionally falls back to `Task.Metadata["trace_id"]` (as a remote parent, not just an attribute) on the result path when headers are missing - NATS headers always win when present because they carry both trace_id and the publisher's span_id. Status path uses NATS headers only (`a2a.TaskStatus` has no `Metadata` field). Both collector paths emit `collector.receive.result` / `collector.receive.status` consumer spans that re-attach to the publisher's trace. New integration test `test/integration/trace-propagation/` (build tag `integration`) publishes 100 tasks concurrently, drives them through real NATS JetStream + a fake ACP TCP server, and asserts per-task that there is exactly one root span, that the expected core span set is present, that NATS spans carry the right `messaging.destination.name`, that span kinds match the documented tree (Producer/Consumer/Client/Internal), that no span has an unknown parent, and that all spans share one `trace_id`. Aggregate assertions verify exactly 100 distinct trace IDs and 100 roots. The test uses `tracetest.InMemoryExporter` with a `SimpleSpanProcessor` (rationale documented in the test README). Run with `make test-trace-propagation` or `go test -tags=integration ./test/integration/trace-propagation/...`. Files touched outside `internal/telemetry/`: `internal/queue/nats.go`, `internal/proxy/handler.go`, `internal/orchestrator/collector.go`, plus the new `test/integration/trace-propagation/` directory and a Makefile target.
 - **Phase 6.3 - structural alert rules and null Alertmanager receiver**:
   - `deploy/helm/daedalus/templates/prometheusrule.yaml`: 7 structural
