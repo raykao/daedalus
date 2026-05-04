@@ -18,6 +18,7 @@ spec:
           labels:
             severity: page
             daedalus_component: worker
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "Daedalus worker pod cannot pull its container image"
             description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been in ImagePullBackOff for at least 2 minutes. The worker cannot start until the image becomes available."
@@ -34,6 +35,7 @@ spec:
           labels:
             severity: page
             daedalus_component: worker
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "Daedalus worker pod is crash-looping"
             description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously for the last 10 minutes."
@@ -128,6 +130,17 @@ spec:
         # Use gauges surveyor reliably exposes: pending count growing over 10m
         # AND non-trivially sized. The 100-message floor avoids paging on
         # transient single-digit pending blips when no consumer is attached.
+        # nats-surveyor (the JetStream metrics exporter) typically runs
+        # in its own namespace, separate from the daedalus chart's
+        # release namespace. The `namespace` label that lands on
+        # `nats_consumer_*` / `nats_stream_*` series is therefore
+        # surveyor's pod namespace, NOT the release namespace, so the
+        # Prometheus Operator's AlertmanagerConfig sub-route matcher
+        # (`namespace=<release-ns>`) does not match. Pin a static
+        # namespace label on the rule so the alert is routed through
+        # the chart's AMC receiver instead of escaping to the global
+        # Alertmanager default. Same defense-in-depth pattern as
+        # OrchestratorDown / OTelCollectorDown.
         - alert: NATSConsumerLagUnbounded
           expr: |
             delta(nats_consumer_num_pending[10m]) > 0
@@ -137,6 +150,7 @@ spec:
           labels:
             severity: page
             daedalus_component: nats
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "NATS JetStream consumer lag is growing"
             description: "Consumer {{ "{{ $labels.consumer_name }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
@@ -176,6 +190,7 @@ spec:
           labels:
             severity: warn
             daedalus_component: nats
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "NATS JetStream stream has messages but no consumers"
             description: "Stream {{ "{{ $labels.stream }}" }} (account {{ "{{ $labels.account }}" }}) has stored messages but zero consumers attached for at least 10 minutes. Either every consumer disconnected or none was ever created; messages cannot be drained."
