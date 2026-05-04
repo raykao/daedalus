@@ -1,0 +1,95 @@
+{{- if .Values.alerting.enabled }}
+{{- $workerPrefix := printf "%s-worker-" (include "daedalus.fullname" .) -}}
+{{- $orchestratorName := printf "%s-orchestrator" (include "daedalus.fullname" .) -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "daedalus.fullname" . }}-alerts
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    {{- with .Values.alerting.prometheusOperator.releaseLabel }}
+    release: {{ . | quote }}
+    {{- end }}
+spec:
+  groups:
+    - name: daedalus.platform
+      rules:
+        - alert: WorkerImagePullBackOff
+          expr: kube_pod_container_status_waiting_reason{reason="ImagePullBackOff", pod=~"{{ $workerPrefix }}.*"} > 0
+          for: 2m
+          labels:
+            severity: page
+            daedalus_component: worker
+          annotations:
+            summary: "Daedalus worker pod cannot pull its container image"
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been in ImagePullBackOff for at least 2 minutes. The worker cannot start until the image becomes available."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-image-pull-backoff"
+
+        - alert: WorkerCrashLoopBackOff
+          expr: rate(kube_pod_container_status_restarts_total{pod=~"{{ $workerPrefix }}.*"}[10m]) > 0.3
+          for: 0m
+          labels:
+            severity: page
+            daedalus_component: worker
+          annotations:
+            summary: "Daedalus worker pod is crash-looping"
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has restarted at a sustained rate above 0.3/sec over the last 10 minutes."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-crashloop"
+
+        - alert: OrchestratorDown
+          expr: kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"} == 0
+          for: 2m
+          labels:
+            severity: page
+            daedalus_component: orchestrator
+          annotations:
+            summary: "Daedalus orchestrator has zero available replicas"
+            description: "Deployment {{ $orchestratorName }} in namespace {{ "{{ $labels.namespace }}" }} has had zero available replicas for 2 minutes. The control plane is offline."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#orchestrator-down"
+
+        - alert: KEDAScalerError
+          expr: rate(keda_scaler_errors_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: page
+            daedalus_component: keda
+          annotations:
+            summary: "KEDA scaler is reporting errors"
+            description: "KEDA scaler {{ "{{ $labels.scaler }}" }} for {{ "{{ $labels.scaledObject }}" }} in namespace {{ "{{ $labels.namespace }}" }} is producing errors. Autoscaling decisions for Daedalus workers are unreliable."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#keda-scaler-error"
+
+        - alert: OTelCollectorDown
+          expr: up{job="otel-collector"} == 0
+          for: 5m
+          labels:
+            severity: page
+            daedalus_component: otel
+          annotations:
+            summary: "OTel collector is down"
+            description: "OpenTelemetry collector instance {{ "{{ $labels.instance }}" }} has been unreachable for 5 minutes. Trace and metric ingestion is degraded."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#otel-collector-down"
+
+    - name: daedalus.dependencies
+      rules:
+        - alert: NATSConsumerLagUnbounded
+          expr: delta(nats_jetstream_consumer_num_pending[10m]) > 0 and rate(nats_jetstream_consumer_acks_total[10m]) == 0
+          for: 0m
+          labels:
+            severity: page
+            daedalus_component: nats
+          annotations:
+            summary: "NATS JetStream consumer lag is growing without acks"
+            description: "Consumer {{ "{{ $labels.consumer }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m but produced zero acks. Workers are not draining the queue."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
+
+        - alert: NATSStreamUnhealthy
+          expr: nats_jetstream_stream_messages_lost_total > 0 or nats_jetstream_stream_storage_bytes / nats_jetstream_stream_max_bytes > 0.9
+          for: 0m
+          labels:
+            severity: warn
+            daedalus_component: nats
+          annotations:
+            summary: "NATS JetStream stream is lossy or near capacity"
+            description: "Stream {{ "{{ $labels.stream }}" }} has either reported lost messages or is using more than 90% of its configured max storage."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-stream-unhealthy"
+{{- end }}

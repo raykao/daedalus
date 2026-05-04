@@ -213,3 +213,29 @@ keda:
   # activationLagThreshold: scale from zero when any message exists
   activationLagThreshold: "0"
   natsStream: "AGENT_TASKS"
+
+# Alerting - Prometheus Operator PrometheusRule + AlertmanagerConfig.
+# Requires kube-prometheus-stack (or compatible Prometheus Operator) installed
+# in the cluster. Disable the entire section when running an out-of-band
+# alerting stack; disable just alertmanagerConfig.enabled when you manage your
+# own central Alertmanager configuration.
+alerting:
+  enabled: true
+  prometheusOperator:
+    # Value of the `release` label that the Prometheus Operator's
+    # ruleSelector / alertmanagerConfigSelector matches. Set to the Helm
+    # release name of your kube-prometheus-stack install.
+    releaseLabel: kube-prometheus-stack
+  alertmanagerConfig:
+    enabled: true
+    receiver:
+      # One of: "null" | "mattermost" | "github" | "pagerduty".
+      # "null" emits a no-op receiver so alerts are received and dropped.
+      type: "null"
+      # Type-specific config. See docs/runbook.md "Alertmanager receiver
+      # override" for copy-pasteable examples.
+      #
+      # mattermost:  { webhook: "https://mattermost.example.com/hooks/xxxx" }
+      # github:      { webhook: "https://api.github.com/repos/<org>/<repo>/dispatches" }
+      # pagerduty:   { routingKeySecret: { name: "pagerduty-key", key: "routing-key" } }
+      config: {}
