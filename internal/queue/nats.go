@@ -181,7 +181,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg jetstream.Msg, handle
 	// is a no-op and the consume span starts a fresh trace.
 	consumeCtx := telemetry.ExtractNATSHeaders(ctx, msg.Headers())
 	tracer := otel.Tracer(tracerName)
-	consumeCtx, span := tracer.Start(consumeCtx, "nats.consume "+msg.Subject(),
+	consumeCtx, span := tracer.Start(consumeCtx, "nats.consume",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "nats"),
@@ -240,7 +240,7 @@ func (p *Publisher) PublishJSON(ctx context.Context, subject string, v interface
 	}
 
 	tracer := otel.Tracer(tracerName)
-	ctx, span := tracer.Start(ctx, "nats.publish "+subject,
+	ctx, span := tracer.Start(ctx, "nats.publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
 			attribute.String("messaging.system", "nats"),

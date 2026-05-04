@@ -330,26 +330,29 @@ func TestTracePropagation_100ConcurrentTasks(t *testing.T) {
 // Span graph assertions.
 // ---------------------------------------------------------------------------
 
-// expectedSpansPerTask is the canonical span-name set documented in README.md.
-// The proxy emits "proxy.handle" with no taskId suffix in the span name; the
-// task ID is on an attribute. Likewise "acp.session.new" / "acp.session.prompt"
-// are global names. The publish/consume span names embed the subject, so we
-// match per-subject below.
+// expectedSpanNamesPerTask is the canonical span-name set documented in
+// README.md. All names are bounded (no taskID embedded) so dashboard
+// aggregation by operation-name remains tractable as task volume grows.
+// Per-task identity (subject, task ID) lives on attributes:
+// "messaging.destination.name", "daedalus.task.id".
 var expectedSpanNamesPerTask = []string{
 	"test.dispatch",
+	"nats.publish",   // appears twice per task: agent.tasks.* and agent.results.*
+	"nats.consume",   // agent.tasks.*
 	"proxy.handle",
 	"acp.session.new",
 	"acp.session.prompt",
 	"collector.receive.result",
 }
 
-// expectedDynamicSpansPerTask returns the span names that include the taskID
-// (queue publish/consume on agent.tasks.* and agent.results.*).
-func expectedDynamicSpansPerTask(taskID string) []string {
+// expectedSubjectsPerTask returns the subjects that must appear as
+// messaging.destination.name attributes on the per-task NATS spans.
+// Order matches the trace topology: tasks publish, tasks consume, results
+// publish.
+func expectedSubjectsPerTask(taskID string) []string {
 	return []string{
-		"nats.publish agent.tasks." + taskID,
-		"nats.consume agent.tasks." + taskID,
-		"nats.publish agent.results." + taskID,
+		"agent.tasks." + taskID,
+		"agent.results." + taskID,
 	}
 }
 
@@ -415,9 +418,32 @@ func assertTraceTrees(t *testing.T, spans tracetest.SpanStubs, taskIDs []string,
 				t.Errorf("task %s (trace %s): missing expected span %q (have: %v)", taskID, traceID, want, sortedNames(names))
 			}
 		}
-		for _, want := range expectedDynamicSpansPerTask(taskID) {
-			if names[want] == 0 {
-				t.Errorf("task %s (trace %s): missing expected span %q (have: %v)", taskID, traceID, want, sortedNames(names))
+		// "nats.publish" appears twice per task (agent.tasks.* and agent.results.*).
+		if names["nats.publish"] < 2 {
+			t.Errorf("task %s (trace %s): expected >=2 nats.publish spans, got %d (have: %v)",
+				taskID, traceID, names["nats.publish"], sortedNames(names))
+		}
+
+		// (b2) Per-task identity moved from span names to attributes.
+		// Every nats.publish / nats.consume span in this trace must
+		// carry messaging.destination.name; the union across all NATS
+		// spans must include the expected subjects for this task.
+		gotSubjects := map[string]int{}
+		for _, s := range traceSpans {
+			if s.Name != "nats.publish" && s.Name != "nats.consume" {
+				continue
+			}
+			subj := attrString(s, "messaging.destination.name")
+			if subj == "" {
+				t.Errorf("task %s: %s span missing messaging.destination.name", taskID, s.Name)
+				continue
+			}
+			gotSubjects[subj]++
+		}
+		for _, want := range expectedSubjectsPerTask(taskID) {
+			if gotSubjects[want] == 0 {
+				t.Errorf("task %s: no NATS span carried messaging.destination.name=%q (saw: %v)",
+					taskID, want, sortedNames(gotSubjects))
 			}
 		}
 
@@ -455,4 +481,15 @@ func sortedNames(m map[string]int) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// attrString returns the string value of attribute key on the span stub, or
+// "" if absent or not a string.
+func attrString(s tracetest.SpanStub, key string) string {
+	for _, a := range s.Attributes {
+		if string(a.Key) == key {
+			return a.Value.AsString()
+		}
+	}
+	return ""
 }
