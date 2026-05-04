@@ -77,12 +77,24 @@ spec:
             description: "KEDA scaler {{ "{{ $labels.scaler }}" }} for {{ "{{ $labels.scaledObject }}" }} in namespace {{ "{{ $labels.namespace }}" }} is producing errors. Autoscaling decisions for Daedalus workers are unreliable."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#keda-scaler-error"
 
+        # Mirrors OrchestratorDown: bare up{} == 0 returns no series if
+        # the OTel collector deployment / its ServiceMonitor is missing
+        # entirely, so the alert silently never fires. Combine with
+        # absent() to cover the missing case.
+        # The `up{}` series' namespace label depends on the
+        # ServiceMonitor configuration in the cluster; a static
+        # namespace label on the rule guarantees the AMC sub-route's
+        # namespace matcher matches regardless.
         - alert: OTelCollectorDown
-          expr: up{job="otel-collector"} == 0
+          expr: |
+            absent(up{job="otel-collector"})
+            or
+            up{job="otel-collector"} == 0
           for: 5m
           labels:
             severity: page
             daedalus_component: otel
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "OTel collector is down"
             description: "OpenTelemetry collector instance {{ "{{ $labels.instance }}" }} has been unreachable for 5 minutes. Trace and metric ingestion is degraded."

@@ -139,8 +139,14 @@ assert_match "stream alert uses nats_stream_consumer_count" \
 assert_match "stream alert uses nats_stream_total_messages" \
   "nats_stream_total_messages > 0" "$out_default"
 
-# Negative: ensure no fictional metrics are USED (not just mentioned in comments)
-# in the rendered chart. Filter out comment lines.
+echo "[test] OTelCollectorDown covers absent collector and carries namespace label"
+assert_match "otel alert has absent() leg" \
+  'absent\(up\{job="otel-collector"\}\)' "$out_default"
+assert_match "otel alert has static namespace label" \
+  'namespace: "default"' "$out_default"
+
+# Negative: ensure no fictional nats-surveyor metrics are USED (not just
+# mentioned in comments) in the rendered chart. Filter out comment lines.
 if printf '%s' "$out_default" | grep -vE '^\s*#' | grep -qE 'nats_jetstream_stream_(messages_lost|max_bytes|storage_bytes)|nats_jetstream_consumer_num_pending'; then
   echo "  FAIL fictional nats-surveyor metric used outside comments"
   FAIL=$((FAIL + 1))
