@@ -15,12 +15,7 @@ spec:
     groupWait: 30s
     groupInterval: 5m
     repeatInterval: 4h
-    routes:
-      - matchers:
-          - name: daedalus_component
-            matchType: "=~"
-            value: ".+"
-        receiver: daedalus-default
+    # Per-component severity routing lands in sub-task 6.4 once runbook entries exist.
   receivers:
     - name: daedalus-default
       {{- if eq $type "null" }}
