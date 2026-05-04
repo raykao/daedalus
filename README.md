@@ -6,25 +6,32 @@ Kubernetes-native agent orchestration platform. Named after the master builder o
 
 ## Architecture (TL;DR)
 
-```
-User (Mattermost) --> Orchestrator --> NATS JetStream --> Worker Pod
-                      (A2A tasks)     (A2A envelope)       |
-                                                       ┌───┴──────────────────────────────┐
-                                                       │ PLATFORM LAYER (Daedalus)      │
-                                                       │   Queue-to-ACP Proxy sidecar      │
-                                                       │   reads queue (A2A), drives agent  │
-                                                       │   via ACP, writes results back     │
-                                                       ├──────────────────────────────────--│
-                                                       │ USER LAYER (bring your own)        │
-                                                       │   Any ACP-compatible agent:        │
-                                                       │     copilot --acp (default)        │
-                                                       │     claude --acp / codex --acp     │
-                                                       │     gemini --acp / qwen --acp      │
-                                                       │     + 12 more ACP agents           │
-                                                       │   Optional Layer 2 wrapper:        │
-                                                       │     acpx (sessions, flows)         │
-                                                       │     copilot-bridge (hooks, personas)│
-                                                       └───────────────────────────────────-┘
+```mermaid
+flowchart LR
+  User([User · Mattermost]) -->|A2A tasks| Orch[Orchestrator]
+  Orch -->|A2A envelope| NATS[(NATS JetStream)]
+  NATS --> Worker
+
+  subgraph Worker[Worker Pod]
+    direction TB
+    subgraph Platform["PLATFORM LAYER · Daedalus"]
+      Proxy["Queue-to-ACP Proxy sidecar<br/>reads queue (A2A) · writes results back"]
+    end
+    subgraph UserLayer["USER LAYER · bring your own"]
+      direction TB
+      Agent["ACP-compatible agent<br/>copilot --acp (default)<br/>claude --acp · codex --acp<br/>gemini --acp · qwen --acp<br/>+ 12 more ACP agents"]
+      Wrapper["Optional Layer 2 wrappers<br/>acpx (sessions, flows)<br/>copilot-bridge (hooks, personas)"]
+    end
+    Proxy -->|ACP| Agent
+    Agent -.->|optional| Wrapper
+  end
+
+  Proxy -->|results| NATS
+
+  classDef platform fill:#e8f0ff,stroke:#3b6fd1,color:#000
+  classDef user fill:#f3f0ff,stroke:#7a5cd1,color:#000
+  class Platform,Proxy platform
+  class UserLayer,Agent,Wrapper user
 ```
 
 **Key design decisions:**
