@@ -367,3 +367,68 @@ when this variable is set; useful as a guard in CI debugging.
 
 > Deeper architecture, configuration reference, and troubleshooting:
 > [AKS Deployment Guide](aks-deployment.md).
+
+---
+
+## Alertmanager receiver override
+
+The chart ships with `alerting.alertmanagerConfig.receiver.type: "null"` so a
+fresh deploy provisions the seven structural alerts without paging anyone.
+Pick one of the override blocks below and add it to your `values.yaml` (or
+`-f` overlay) to switch the default receiver.
+
+Per-alert routing rules (per-component, severity-based escalation, etc.) are
+out of scope for this release - sub-task 6.4 will add them once the per-alert
+runbook entries land.
+
+### Mattermost
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: mattermost
+      config:
+        webhook: https://mattermost.example.com/hooks/REPLACE_ME
+```
+
+The webhook URL is the incoming-webhook URL of the channel that should
+receive alerts. Create it via Mattermost → Integrations → Incoming Webhooks.
+
+### GitHub
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: github
+      config:
+        webhook: https://api.github.com/repos/<org>/<repo>/dispatches
+```
+
+This drives `repository_dispatch` events. A workflow listening on
+`on: repository_dispatch: { types: [alertmanager] }` (or whatever
+`event_type` your Alertmanager template sends) opens the issue or runs the
+mitigation playbook. Pair with a fine-grained PAT or GitHub App token mounted
+as a secret if your Alertmanager uses HTTP basic auth.
+
+### PagerDuty
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: pagerduty
+      config:
+        routingKeySecret:
+          name: pagerduty-routing-key
+          key: routing-key
+```
+
+The secret must already exist in the namespace where Alertmanager runs and
+contain the Events API v2 routing key. Create it once with:
+
+```bash
+kubectl -n monitoring create secret generic pagerduty-routing-key \
+  --from-literal=routing-key=<your-pagerduty-integration-key>
+```

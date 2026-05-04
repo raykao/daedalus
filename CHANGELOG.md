@@ -9,7 +9,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Phase 6 sub-task 6.1 - trace propagation audit, gap-fill, and 100-task concurrent integration test.** Walked every hop of the task pipeline (orchestrator publish, NATS consume, proxy.Handle, ACP `session/new`, ACP `session/prompt`, ACP `session/update` stream, result publish, collector receive) and identified six gaps. Closed all six with the smallest possible code change: `internal/queue/nats.go` now injects W3C `traceparent` into NATS message headers on publish and extracts on consume (each emits a bounded-name `nats.publish` / `nats.consume` span; the subject lives on the canonical `messaging.destination.name` attribute, not in the span name, so dashboard aggregation by operation name stays tractable as task volume grows); `internal/proxy/handler.go` now starts a `proxy.handle` span and wraps ACP calls in `acp.session.new` / `acp.session.prompt` client-kind spans, plus stamps `trace_id` into `Task.Metadata` for downstream consumers that cannot read NATS headers, and reattaches `req.Message.Metadata["trace_id"]` as a remote parent on the proxy side when NATS headers are absent; `internal/orchestrator/collector.go` extracts trace context from result/status NATS headers and additionally falls back to `Task.Metadata["trace_id"]` (as a remote parent, not just an attribute) on the result path when headers are missing - NATS headers always win when present because they carry both trace_id and the publisher's span_id. Status path uses NATS headers only (`a2a.TaskStatus` has no `Metadata` field). Both collector paths emit `collector.receive.result` / `collector.receive.status` consumer spans that re-attach to the publisher's trace. New integration test `test/integration/trace-propagation/` (build tag `integration`) publishes 100 tasks concurrently, drives them through real NATS JetStream + a fake ACP TCP server, and asserts per-task that there is exactly one root span, that the expected core span set is present, that NATS spans carry the right `messaging.destination.name`, that span kinds match the documented tree (Producer/Consumer/Client/Internal), that no span has an unknown parent, and that all spans share one `trace_id`. Aggregate assertions verify exactly 100 distinct trace IDs and 100 roots. The test uses `tracetest.InMemoryExporter` with a `SimpleSpanProcessor` (rationale documented in the test README). Run with `make test-trace-propagation` or `go test -tags=integration ./test/integration/trace-propagation/...`. Files touched outside `internal/telemetry/`: `internal/queue/nats.go`, `internal/proxy/handler.go`, `internal/orchestrator/collector.go`, plus the new `test/integration/trace-propagation/` directory and a Makefile target.
-
+- **Phase 6.3 - structural alert rules and null Alertmanager receiver**:
+  - `deploy/helm/daedalus/templates/prometheusrule.yaml`: 7 structural
+    alerts (`WorkerImagePullBackOff`, `WorkerCrashLoopBackOff`,
+    `NATSConsumerLagUnbounded`, `KEDAScalerError`, `OTelCollectorDown`,
+    `OrchestratorDown`, `NATSStreamUnhealthy`), grouped into
+    `daedalus.platform` and `daedalus.dependencies`. Each alert carries
+    `severity` (`page` or `warn`), a `daedalus_component` label, and a
+    `runbook_url` pointing at `docs/runbook.md` anchors authored in
+    sub-task 6.4. Per `docs/observability.md` § 3, no SLO threshold
+    alerts in Pass 1 by design.
+  - `deploy/helm/daedalus/templates/alertmanagerconfig.yaml`: default
+    `null` receiver named `daedalus-default` so a fresh deploy provisions
+    the alerts without paging anyone. The receiver type is switchable to
+    `mattermost`, `github`, or `pagerduty` via a three-line values
+    override (see `docs/runbook.md` § "Alertmanager receiver override").
+  - `deploy/helm/daedalus/values.yaml`: new top-level `alerting:` section
+    (`enabled`, `prometheusOperator.releaseLabel`,
+    `alertmanagerConfig.{enabled,receiver.{type,config}}`). Both the
+    `PrometheusRule` and the `AlertmanagerConfig` are individually gated.
+  - `deploy/helm/daedalus/tests/alerts_test.sh`: shell-based Helm chart
+    test that asserts (a) all 7 alerts and runbook anchors render under
+    default values, (b) `alerting.enabled=false` produces zero
+    `PrometheusRule` / `AlertmanagerConfig` resources, (c) switching the
+    receiver to `mattermost` or `pagerduty` renders the matching
+    receiver block. 22/22 assertions green.
+  - `docs/runbook.md`: new "Alertmanager receiver override" section with
+    copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
+    alert runbook entries (means / reproduce / diagnose / mitigate) are
+    deferred to sub-task 6.4 by design.
 - `docs/observability.md`: Pass 1 implementation spec for Phase 6 / Option C observability deepening. Covers trace ID end-to-end audit and gap-fill, per-agent-type fleet dashboards (cold-start, queue depth, throughput, error rate, task-to-artifact latency, top-slow tasks linked to Tempo), structural alert rules (no SLO thresholds in Pass 1), runbook entries, and a Phase 5 acceptance-criteria coverage appendix that maps AC1/AC2/AC5 to specific signals. Strategic rationale lives in `raykao/dark-factory:research/daedalus-observability.md`. Implementation handoff doc only - no platform code or behavior change.
 - `deploy/helm/daedalus/dashboards/.gitkeep`: landing zone for Pass 1 Grafana dashboard JSON.
 - `docs/phase6-options.md`: scoping/options menu for the next phase. Enumerates seven candidate directions (session-resurrection validation, second agent type, observability deepening, multi-replica orchestrator, production hardening, K8s operator, out-of-band) with maturity gates, scope, and trade-offs. No phase is committed; the doc is a decision input for the human to pick from.
