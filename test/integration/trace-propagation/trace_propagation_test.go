@@ -307,6 +307,27 @@ func TestTracePropagation_100ConcurrentTasks(t *testing.T) {
 		}
 	}
 
+	// ----------------------------------------------------------------------
+	// Deterministic drain.
+	//
+	// WaitForAll returns as soon as every taskID's terminal a2a.Task has
+	// been stored by the collector. That happens inside handleResult's
+	// storeAndNotify call, which runs *before* the deferred span.End() of
+	// the surrounding "collector.receive.result" span. With
+	// SimpleSpanProcessor, a span is only visible to the in-memory
+	// exporter once End() has fired. If we cancelled and flushed
+	// immediately on WaitForAll's return, the last handleResult
+	// goroutine could still have an unfired defer, and its
+	// "collector.receive.result" span would be missing from
+	// exp.GetSpans() (~20% flake observed pre-fix).
+	//
+	// Drain by polling the in-memory exporter until we have seen one
+	// "collector.receive.result" span per task, with a hard timeout so a
+	// real propagation regression fails fast instead of hanging.
+	if err := waitForResultSpans(ctx, exp, numTasks, 30*time.Second); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
 	// Stop pipeline and let in-flight spans finish.
 	consumerCancel()
 	collectorCancel()
@@ -497,6 +518,37 @@ func assertTraceTrees(t *testing.T, spans tracetest.SpanStubs, taskIDs []string,
 				t.Errorf("task %s: span %q has trace %s, expected %s",
 					taskID, s.Name, s.SpanContext.TraceID(), traceID)
 			}
+		}
+	}
+}
+
+// waitForResultSpans polls the in-memory exporter until at least `want`
+// spans named "collector.receive.result" are visible, or the timeout
+// elapses. This is the deterministic drain that compensates for the
+// race between WaitForAll (which fires when storeAndNotify runs) and
+// the deferred span.End() call inside ResultCollector.handleResult.
+// See trace_propagation_test.go and README.md for the full rationale.
+func waitForResultSpans(ctx context.Context, exp *tracetest.InMemoryExporter, want int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	const pollInterval = 10 * time.Millisecond
+	for {
+		got := 0
+		for _, s := range exp.GetSpans() {
+			if s.Name == "collector.receive.result" {
+				got++
+			}
+		}
+		if got >= want {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for %d collector.receive.result spans (saw %d)",
+				timeout, want, got)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while draining: %w", ctx.Err())
+		case <-time.After(pollInterval):
 		}
 	}
 }

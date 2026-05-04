@@ -171,7 +171,36 @@ propagation.
 
 ---
 
-## 5. Deviations from the prompt
+## 5. Consumer drain (deterministic shutdown)
+
+`ResultCollector.WaitForAll` returns as soon as every taskID's terminal
+`a2a.Task` has been stored. That happens inside `handleResult`'s call
+to `storeAndNotify`, which runs *before* the deferred `span.End()` of
+the surrounding `collector.receive.result` span. Because the test uses
+a `SimpleSpanProcessor`, a span only becomes visible to the in-memory
+exporter once `End()` has fired. If the test cancelled the consumer /
+collector and called `ForceFlush` immediately on `WaitForAll`'s return,
+the last `handleResult` goroutine could still have an unfired defer,
+and its `collector.receive.result` span would be missing from
+`exp.GetSpans()`. Pre-fix, this manifested as a ~20% flake on the last
+task (one missing `collector.receive.result` span out of 100).
+
+The test therefore performs a **deterministic drain** between
+`WaitForAll` and the cancel/flush sequence: it polls
+`exp.GetSpans()` until it has counted at least `numTasks` (=100)
+spans named `collector.receive.result`, with a hard 30s timeout.
+Polling is 10ms; in practice the drain completes within a few ms of
+`WaitForAll` returning. The timeout is a 300x safety margin (each
+end-to-end task is ~1ms) so a real propagation regression — a
+genuinely lost result span — fails fast instead of hanging the
+suite. We chose poll-the-exporter over a per-task `sync.WaitGroup`
+barrier inside the collector because the constraint for this fix was
+to keep `internal/orchestrator/collector.go` unchanged; option 1 in
+the implementation prompt would have required collector instrumentation.
+
+---
+
+## 6. Deviations from the prompt
 
 - The prompt called out "Mattermost ingress -> orchestrator" as hop 1.
   No Mattermost ingress exists in this repo today. The test substitutes
