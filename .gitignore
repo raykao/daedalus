@@ -8,6 +8,10 @@ aks.env
 coverage.out
 *.test
 
+# MkDocs build output
+site/
+.venv-docs/
+
 # IDE
 .idea/
 .vscode/

@@ -1,0 +1,132 @@
+site_name: Daedalus
+site_description: Kubernetes-native agent orchestration platform
+site_url: https://daedalus.raykao.io
+repo_url: https://github.com/raykao/daedalus
+repo_name: raykao/daedalus
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - toc.follow
+  palette:
+    # Auto (system preference)
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    # Light
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+
+# Files in docs/ that exist but should not be part of the site build at all.
+# They remain in the repo (they are internal planning notes) and are simply
+# skipped by mkdocs - no warnings, no rendered pages.
+exclude_docs: |
+  phase5-epic-draft.md
+  phase5-plan.md
+  phase6-options.md
+  plan.md
+
+# Strict mode (`mkdocs build --strict`) treats warnings as errors.
+# We keep nav and anchor validation strict (so missing nav entries and
+# broken intra-doc anchors still fail the build), but downgrade
+# "unrecognized_links" to info: existing public docs contain a few links
+# that point at repo paths outside docs/ (e.g. ../deploy/terraform/README.md,
+# ../research/*.md). Those files are not part of the docs site and we are
+# not allowed to rewrite the source markdown, so they would otherwise
+# fail strict mode. They render as plain repo-relative links on github.com
+# and are harmless on the published site.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    # Existing public docs contain a few cross-tree links to repo paths
+    # outside docs/ (e.g. ../deploy/terraform/README.md, ../research/*.md).
+    # We are not allowed to rewrite source markdown, so demote "not found"
+    # to info. These render as plain relative links on github.com and are
+    # harmless on the published site. Anchor and absolute-link validation
+    # remain at warn level, so genuinely broken intra-doc anchors still
+    # fail strict mode.
+    not_found: info
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: info
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Deploy on AKS: aks-deployment.md
+      - Smoke Test: smoke-test.md
+  - Architecture:
+      - Layered Model: architecture-layers.md
+      - Runtime Contract: runtime-contract.md
+      - Agent Registry: agent-registry.md
+      - ACP Capabilities: acp-capabilities.md
+  - Operations:
+      - Runbook: runbook.md
+      - Observability: observability.md
+      - SIGTERM Behavior: sigterm-behavior.md
+      - Integration Testing: integration-testing.md
+  - Reference:
+      - Comparison vs kagent: comparison-kagent.md
+      - Branch Naming: branch-naming.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/raykao/daedalus

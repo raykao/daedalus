@@ -1,0 +1,8 @@
+# Pinned dependencies for the Daedalus MkDocs documentation site.
+# Bumping these requires re-running `mkdocs build --strict` locally.
+mkdocs==1.6.*
+mkdocs-material==9.5.*
+# Pinned to a specific minor (not 10.*) so a future pymdownx minor cannot
+# silently change extension semantics (e.g. superfences fence_code_format
+# used by the mermaid integration).
+pymdown-extensions==10.14.*
