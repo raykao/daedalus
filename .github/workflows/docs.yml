@@ -1,0 +1,127 @@
+# =============================================================================
+# Daedalus documentation site - build and deploy
+# =============================================================================
+#
+# Builds the MkDocs Material site from `docs/` + `mkdocs.yml` and publishes it
+# to GitHub Pages at https://daedalus.raykao.io.
+#
+# Pull requests build only (catches broken builds before merge).
+# Pushes to main, plus manual workflow_dispatch, build AND deploy.
+#
+# -----------------------------------------------------------------------------
+# One-time manual setup (do this once per repo, not in CI):
+# -----------------------------------------------------------------------------
+#   1. GitHub repo Settings -> Pages
+#        Build and deployment -> Source: "GitHub Actions"
+#        (NOT "Deploy from a branch" - this workflow uses the modern
+#         actions/deploy-pages flow, not a gh-pages branch.)
+#
+#   2. GitHub repo Settings -> Pages -> Custom domain
+#        Enter: daedalus.raykao.io
+#        Tick:  "Enforce HTTPS" (after the cert provisions, ~15 min)
+#        The CNAME file at docs/CNAME (copied into site/CNAME by the
+#        mkdocs build) preserves this setting across deploys.
+#
+#   3. DNS at the raykao.io registrar:
+#        Create a CNAME record:
+#          daedalus.raykao.io  CNAME  raykao.github.io.
+#        (Apex-style domains would need A/AAAA records to GitHub Pages IPs.
+#         daedalus.raykao.io is a subdomain, so CNAME is correct.)
+#
+#   4. (Optional but recommended) Settings -> Environments -> github-pages
+#        Restrict deploys to the `main` branch only.
+# -----------------------------------------------------------------------------
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Least privilege at workflow level. The deploy job upgrades to what it needs.
+permissions:
+  contents: read
+
+# Queue Pages deploys instead of cancelling in-flight ones. A cancelled
+# deploy can leave Pages in a half-updated state; queueing is safer.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build: runs on every trigger. Produces the site/ artifact.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-docs.txt
+
+      # --strict turns warnings (broken links, missing nav entries, orphaned
+      # files) into hard failures. Keep it - it catches drift early.
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+      - name: Verify CNAME made it into the build
+        run: |
+          test -f site/CNAME
+          grep -qx 'daedalus.raykao.io' site/CNAME
+
+      # Only upload the Pages artifact when we are actually going to deploy.
+      # PRs from forks cannot upload Pages artifacts anyway, and we do not
+      # need the artifact for build-only validation.
+      - name: Configure Pages
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # ---------------------------------------------------------------------------
+  # Deploy: only on main push or manual dispatch. Consumes the artifact from
+  # the build job and publishes it via the GitHub Pages deployment API.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write       # required to deploy to Pages
+      id-token: write    # required for OIDC token used by deploy-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
