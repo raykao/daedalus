@@ -145,7 +145,19 @@ assert_match "KEDAScalerError carries namespace filter" \
 
 echo "[test] OTelCollectorDown covers absent collector and carries namespace label"
 assert_match "otel alert has absent() leg" \
-  'absent\(up\{job="otel-collector", namespace="default"\}\)' "$out_default"
+  'absent\(up\{job="otel-collector"\}\)' "$out_default"
+# Negative: the expr selector must NOT carry a namespace= matcher
+# (CC3 finding 1: the OTel collector typically runs in `monitoring`,
+# not the chart release namespace, so `namespace=` would never match
+# and the alert would fire permanently). The static rule label below
+# handles AMC routing.
+if printf '%s' "$out_default" | grep -E 'up\{job="otel-collector",[[:space:]]*namespace=' >/dev/null; then
+  echo "  FAIL OTelCollectorDown expr selector still carries namespace= matcher"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ok   OTelCollectorDown expr selector has no namespace= matcher"
+  PASS=$((PASS + 1))
+fi
 assert_match "otel alert has static namespace label" \
   'namespace: "default"' "$out_default"
 

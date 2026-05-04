@@ -88,15 +88,21 @@ spec:
         # the OTel collector deployment / its ServiceMonitor is missing
         # entirely, so the alert silently never fires. Combine with
         # absent() to cover the missing case.
-        # The `up{}` series' namespace label depends on the
-        # ServiceMonitor configuration in the cluster; a static
-        # namespace label on the rule guarantees the AMC sub-route's
-        # namespace matcher matches regardless.
+        # The OTel collector typically does NOT run in the chart's
+        # release namespace - the kube-prometheus-stack overlay (PR #30)
+        # deploys it in `monitoring`, and many clusters run it via the
+        # OpenTelemetry Operator in its own namespace. A `namespace=`
+        # matcher on the expr selector would never match, so absent()
+        # would be permanently true and the alert would fire forever.
+        # The expr therefore matches on `job="otel-collector"` only;
+        # the static `namespace="{{ .Release.Namespace }}"` rule label
+        # below handles AMC sub-route routing regardless of where the
+        # source `up{}` series actually lives.
         - alert: OTelCollectorDown
           expr: |
-            absent(up{job="otel-collector", namespace="{{ .Release.Namespace }}"})
+            absent(up{job="otel-collector"})
             or
-            up{job="otel-collector", namespace="{{ .Release.Namespace }}"} == 0
+            up{job="otel-collector"} == 0
           for: 5m
           labels:
             severity: page
