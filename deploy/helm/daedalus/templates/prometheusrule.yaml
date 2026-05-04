@@ -93,8 +93,22 @@ spec:
             description: "Consumer {{ "{{ $labels.consumer }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m but produced zero acks. Workers are not draining the queue."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
 
+        # Two failure modes:
+        #   1. Reported message loss (counter > 0).
+        #   2. Stream nearing its configured storage cap.
+        # The capacity ratio is guarded by `max_bytes > 0` because unlimited
+        # streams report max_bytes == 0 and the unguarded division produced
+        # +Inf > 0.9 = true for every unlimited stream. Use explicit
+        # `on(account, stream_name)` matching so the join is deterministic
+        # if surveyor adds extra labels (e.g. server_id) on one side only.
         - alert: NATSStreamUnhealthy
-          expr: nats_jetstream_stream_messages_lost_total > 0 or nats_jetstream_stream_storage_bytes / nats_jetstream_stream_max_bytes > 0.9
+          expr: |
+            nats_jetstream_stream_messages_lost_total > 0
+            or (
+              nats_jetstream_stream_max_bytes > 0
+              and on(account, stream_name)
+              (nats_jetstream_stream_storage_bytes / on(account, stream_name) nats_jetstream_stream_max_bytes) > 0.9
+            )
           for: 0m
           labels:
             severity: warn
