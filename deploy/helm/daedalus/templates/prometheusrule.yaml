@@ -98,8 +98,8 @@ spec:
             severity: page
             daedalus_component: nats
           annotations:
-            summary: "NATS JetStream consumer lag is growing without acks"
-            description: "Consumer {{ "{{ $labels.consumer }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m but produced zero acks. Workers are not draining the queue."
+            summary: "NATS JetStream consumer lag is growing"
+            description: "Consumer {{ "{{ $labels.consumer }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
 
         # Two failure modes:
