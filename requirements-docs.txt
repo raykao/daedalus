@@ -1,0 +1,5 @@
+# Pinned dependencies for the Daedalus MkDocs documentation site.
+# Bumping these requires re-running `mkdocs build --strict` locally.
+mkdocs==1.6.*
+mkdocs-material==9.5.*
+pymdown-extensions==10.*
