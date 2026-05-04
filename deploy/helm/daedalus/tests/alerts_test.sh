@@ -131,13 +131,19 @@ assert_match "OrchestratorDown ==0 leg carries namespace matcher" \
 
 echo "[test] NATSStreamUnhealthy uses surveyor-real metrics (no fictional jetstream_stream_*)"
 assert_match "consumer alert uses nats_consumer_num_pending (not jetstream_)" \
-  "delta\(nats_consumer_num_pending\[10m\]\) > 0" "$out_default"
+  'delta\(nats_consumer_num_pending\{stream="AGENT_TASKS"\}\[10m\]\) > 0' "$out_default"
 assert_match "consumer alert description references consumer_name label" \
   '\$labels\.consumer_name' "$out_default"
 assert_match "stream alert uses nats_stream_consumer_count" \
-  "nats_stream_consumer_count == 0" "$out_default"
+  'nats_stream_consumer_count\{stream="AGENT_TASKS"\} == 0' "$out_default"
 assert_match "stream alert uses nats_stream_total_messages" \
-  "nats_stream_total_messages > 0" "$out_default"
+  'nats_stream_total_messages\{stream="AGENT_TASKS"\} > 0' "$out_default"
+
+echo "[test] NATS alerts are scoped to the daedalus task stream (CC3 finding 2)"
+assert_match "consumer-lag pending leg has stream= filter" \
+  'nats_consumer_num_pending\{stream="AGENT_TASKS"\} > 100' "$out_default"
+assert_match "stream-unhealthy total-messages leg has stream= filter" \
+  'nats_stream_total_messages\{stream="AGENT_TASKS"\} > 0' "$out_default"
 
 echo "[test] KEDAScalerError is scoped to the release namespace"
 assert_match "KEDAScalerError carries namespace filter" \

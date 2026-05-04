@@ -147,11 +147,17 @@ spec:
         # the chart's AMC receiver instead of escaping to the global
         # Alertmanager default. Same defense-in-depth pattern as
         # OrchestratorDown / OTelCollectorDown.
+        # Filter to the daedalus task stream (`.Values.keda.natsStream`,
+        # defaults to "AGENT_TASKS"). Without this, if nats-surveyor
+        # watches multiple JetStream instances or unrelated streams in
+        # the same cluster, this alert would fire on any consumer in any
+        # stream and be mis-attributed to `daedalus_component=nats`.
+        # CC3 finding 2.
         - alert: NATSConsumerLagUnbounded
           expr: |
-            delta(nats_consumer_num_pending[10m]) > 0
+            delta(nats_consumer_num_pending{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"}[10m]) > 0
             and
-            nats_consumer_num_pending > 100
+            nats_consumer_num_pending{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} > 100
           for: 0m
           labels:
             severity: page
@@ -187,11 +193,15 @@ spec:
         # which is server-scoped, not stream-scoped, and is covered by
         # operational dashboards rather than this rule. See the spec's
         # "Cross-check 2 corrections" subsection for rationale.
+        # Same stream-scoping rationale as NATSConsumerLagUnbounded
+        # (CC3 finding 2): without a `stream=` filter, this alert fires
+        # for any stream nats-surveyor sees with messages and no
+        # consumers, and gets mis-attributed to `daedalus_component=nats`.
         - alert: NATSStreamUnhealthy
           expr: |
-            nats_stream_consumer_count == 0
+            nats_stream_consumer_count{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} == 0
             and
-            nats_stream_total_messages > 0
+            nats_stream_total_messages{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} > 0
           for: 10m
           labels:
             severity: warn
