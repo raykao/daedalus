@@ -77,6 +77,29 @@ out_pd=$(helm template "$RELEASE" "$CHART_DIR" \
 assert_match "pagerdutyConfigs block"  "pagerdutyConfigs:" "$out_pd"
 assert_match "pagerduty secret name"   'name: "pd-secret"' "$out_pd"
 
+echo "[test] receiver.type=github renders a webhook receiver"
+out_gh=$(helm template "$RELEASE" "$CHART_DIR" \
+  --set alerting.alertmanagerConfig.receiver.type=github \
+  --set alerting.alertmanagerConfig.receiver.config.webhook=https://api.github.com/repos/raykao/daedalus/issues)
+assert_match "github AlertmanagerConfig resource" "kind: AlertmanagerConfig" "$out_gh"
+assert_match "github webhookConfigs block"        "webhookConfigs:"          "$out_gh"
+assert_match "github webhook url"                 "https://api\.github\.com/repos/raykao/daedalus/issues" "$out_gh"
+
+echo "[test] receiver.type=bogus is rejected at template time"
+bogus_output=""
+bogus_rc=0
+bogus_output=$(helm template "$RELEASE" "$CHART_DIR" \
+  --set alerting.alertmanagerConfig.receiver.type=bogus 2>&1) || bogus_rc=$?
+if [ "$bogus_rc" -ne 0 ]; then
+  echo "  ok   bogus receiver type exits non-zero"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL bogus receiver type exits non-zero (got 0)"
+  FAIL=$((FAIL + 1))
+fi
+assert_match "bogus error mentions 'is not supported'" "is not supported" "$bogus_output"
+assert_match "bogus error names the bad value"         "bogus"            "$bogus_output"
+
 echo
 echo "results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
