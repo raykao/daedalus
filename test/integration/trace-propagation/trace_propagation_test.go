@@ -447,6 +447,32 @@ func assertTraceTrees(t *testing.T, spans tracetest.SpanStubs, taskIDs []string,
 			}
 		}
 
+		// (b3) Span kinds must match the expected tree. A refactor that
+		// flips a Producer/Consumer to Internal would silently break
+		// Tempo/Grafana messaging-system filters and dashboard queries
+		// that group by span.kind. The code is the source of truth for
+		// the kind decision; the README mirrors it.
+		expectedKinds := map[string]oteltrace.SpanKind{
+			"test.dispatch":            oteltrace.SpanKindInternal,
+			"nats.publish":             oteltrace.SpanKindProducer,
+			"nats.consume":             oteltrace.SpanKindConsumer,
+			"proxy.handle":             oteltrace.SpanKindInternal,
+			"acp.session.new":          oteltrace.SpanKindClient,
+			"acp.session.prompt":       oteltrace.SpanKindClient,
+			"collector.receive.result": oteltrace.SpanKindConsumer,
+			"collector.receive.status": oteltrace.SpanKindConsumer,
+		}
+		for _, s := range traceSpans {
+			want, ok := expectedKinds[s.Name]
+			if !ok {
+				continue
+			}
+			if s.SpanKind != want {
+				t.Errorf("task %s: span %q has kind %s, want %s",
+					taskID, s.Name, s.SpanKind, want)
+			}
+		}
+
 		// (c) No orphan: every non-root span's parent must exist somewhere
 		//     (in this trace, since trace ID is consistent - see (d)).
 		for _, s := range traceSpans {
