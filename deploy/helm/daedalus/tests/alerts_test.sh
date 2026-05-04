@@ -139,6 +139,10 @@ assert_match "stream alert uses nats_stream_consumer_count" \
 assert_match "stream alert uses nats_stream_total_messages" \
   "nats_stream_total_messages > 0" "$out_default"
 
+echo "[test] KEDAScalerError is scoped to the release namespace"
+assert_match "KEDAScalerError carries namespace filter" \
+  'rate\(keda_scaler_errors_total\{namespace="default"\}\[5m\]\) > 0' "$out_default"
+
 echo "[test] OTelCollectorDown covers absent collector and carries namespace label"
 assert_match "otel alert has absent() leg" \
   'absent\(up\{job="otel-collector"\}\)' "$out_default"

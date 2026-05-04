@@ -66,12 +66,17 @@ spec:
             description: "Deployment {{ $orchestratorName }} has zero available replicas or is not deployed. The orchestrator is unavailable."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#orchestrator-down"
 
+        # KEDA emits keda_scaler_errors_total cluster-wide; without a
+        # namespace filter, errors from any other team's ScaledObject in
+        # the cluster fire this alert with daedalus_component=keda
+        # attribution. Scope to the chart's release namespace.
         - alert: KEDAScalerError
-          expr: rate(keda_scaler_errors_total[5m]) > 0
+          expr: rate(keda_scaler_errors_total{namespace="{{ .Release.Namespace }}"}[5m]) > 0
           for: 0m
           labels:
             severity: page
             daedalus_component: keda
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "KEDA scaler is reporting errors"
             description: "KEDA scaler {{ "{{ $labels.scaler }}" }} for {{ "{{ $labels.scaledObject }}" }} in namespace {{ "{{ $labels.namespace }}" }} is producing errors. Autoscaling decisions for Daedalus workers are unreliable."
