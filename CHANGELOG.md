@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `docs/phase6-options.md`: scoping/options menu for the next phase. Enumerates seven candidate directions (session-resurrection validation, second agent type, observability deepening, multi-replica orchestrator, production hardening, K8s operator, out-of-band) with maturity gates, scope, and trade-offs. No phase is committed; the doc is a decision input for the human to pick from.
 - **Phase 5.6 - documentation rewrite for the IaC path**: rewrote
   `docs/runbook.md` and `docs/aks-deployment.md` for the Phase 5
   `make deploy-aks-test` flow. The runbook covers the prereq checklist,
