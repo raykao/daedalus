@@ -45,15 +45,22 @@ spec:
         #      lands in the cluster, or after it has been accidentally
         #      removed). Bare `== 0` matches no series in case 2 and the
         #      alert would silently never fire.
+        # The synthesised series from absent() carries only the labels in
+        # its inner selector. The Prometheus Operator wraps each
+        # AlertmanagerConfig in a sub-route with a `namespace=<release-ns>`
+        # matcher, so an alert series without a namespace label escapes the
+        # AMC entirely and falls through to the global Alertmanager default
+        # receiver. Both legs therefore carry an explicit namespace matcher.
         - alert: OrchestratorDown
           expr: |
-            absent(kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"})
+            absent(kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ $orchestratorName }}"})
             or
-            kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"} == 0
+            kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ $orchestratorName }}"} == 0
           for: 2m
           labels:
             severity: page
             daedalus_component: orchestrator
+            namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "Daedalus orchestrator has zero available replicas"
             description: "Deployment {{ $orchestratorName }} has zero available replicas or is not deployed. The orchestrator is unavailable."

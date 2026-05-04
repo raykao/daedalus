@@ -120,6 +120,15 @@ else
 fi
 assert_match "empty releaseLabel error mentions the value name" "releaseLabel must be a non-empty string" "$empty_rl_output"
 
+echo "[test] OrchestratorDown carries namespace label on absent() leg and as static label"
+out_default=$(helm template "$RELEASE" "$CHART_DIR")
+assert_match "OrchestratorDown absent() carries namespace matcher" \
+  "absent\(kube_deployment_status_replicas_available\{namespace=\"default\", deployment=\"$RELEASE-daedalus-orchestrator\"\}\)" \
+  "$out_default"
+assert_match "OrchestratorDown ==0 leg carries namespace matcher" \
+  "kube_deployment_status_replicas_available\{namespace=\"default\", deployment=\"$RELEASE-daedalus-orchestrator\"\} == 0" \
+  "$out_default"
+
 echo
 echo "results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
