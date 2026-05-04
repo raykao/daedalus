@@ -57,7 +57,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     and a new test asserts that
     `alerting.alertmanagerConfig.enabled=false` leaves the
     `PrometheusRule` rendered while suppressing the `AlertmanagerConfig`.
-    Test count is now 32/32 green.
+    Test count is now 32/32 green. Pass 2 review hygiene fixes:
+    `NATSConsumerLagUnbounded` description no longer claims "zero acks"
+    (counter doesn't exist; expr uses gauges); `OrchestratorDown`
+    description rewritten so it renders correctly when fired via the
+    `absent(...)` branch (no `$labels.namespace` reference); spec table
+    row for `NATSStreamUnhealthy` in `docs/observability.md` § 3 now
+    includes the explicit `and on(account, stream_name)` join that the
+    rule already carried.
   - `docs/runbook.md`: new "Alertmanager receiver override" section with
     copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
     alert runbook entries (means / reproduce / diagnose / mitigate) are

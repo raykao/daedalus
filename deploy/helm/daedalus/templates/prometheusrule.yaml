@@ -56,7 +56,7 @@ spec:
             daedalus_component: orchestrator
           annotations:
             summary: "Daedalus orchestrator has zero available replicas"
-            description: "Deployment {{ $orchestratorName }} in namespace {{ "{{ $labels.namespace }}" }} has had zero available replicas for 2 minutes. The control plane is offline."
+            description: "Deployment {{ $orchestratorName }} has zero available replicas or is not deployed. The orchestrator is unavailable."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#orchestrator-down"
 
         - alert: KEDAScalerError
