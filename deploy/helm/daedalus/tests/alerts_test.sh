@@ -42,7 +42,7 @@ assert_match() {
 
 echo "[test] default values render all 7 structural alerts"
 out=$(helm template "$RELEASE" "$CHART_DIR")
-count=$(printf '%s' "$out" | grep -c "alert: " || true)
+count=$(printf '%s' "$out" | grep -cE '^[[:space:]]+- alert: ' || true)
 assert_eq "seven alerts present" "7" "$count"
 
 for name in WorkerImagePullBackOff WorkerCrashLoopBackOff NATSConsumerLagUnbounded \
