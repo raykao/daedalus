@@ -6,7 +6,8 @@
 # to GitHub Pages at https://daedalus.raykao.io.
 #
 # Pull requests build only (catches broken builds before merge).
-# Pushes to main, plus manual workflow_dispatch, build AND deploy.
+# Pushes to main, plus manual workflow_dispatch from main, build AND deploy.
+# workflow_dispatch from any other branch builds only (no deploy).
 #
 # -----------------------------------------------------------------------------
 # One-time manual setup (do this once per repo, not in CI):
