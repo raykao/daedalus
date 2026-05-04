@@ -197,6 +197,20 @@ additional defects. The table above is the corrected form.
   `values.yaml`, `docs/runbook.md`, and the chart test used three
   different example names. Aligned to `pagerduty-routing-key` (the
   runbook's literal `kubectl create secret` invocation).
+- **CC2 in-loop follow-up - same CC2-1 class of bug on both NATS
+  alerts.** `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy` fire
+  on `nats_consumer_*` / `nats_stream_*` metrics from nats-surveyor,
+  which typically runs in its own namespace; the source series'
+  `namespace` label is surveyor's pod namespace, not the release
+  namespace, so the AMC sub-route matcher does not match and the
+  alerts escape to the global default. Both alerts now carry a static
+  `namespace="<release-ns>"` rule label. Defense-in-depth: the same
+  static label is applied to `WorkerImagePullBackOff` and
+  `WorkerCrashLoopBackOff` (whose kube-state-metrics source label
+  already resolves to the release namespace) so the chart is hardened
+  against any future ServiceMonitor relabeling drift. A new test in
+  `alerts_test.sh` asserts every rendered alert carries a static
+  `namespace` label so future additions cannot regress this class.
 
 **No SLO threshold alerts in Pass 1.** Cold-start, task latency, and
 error-rate alerts wait for Pass 2.

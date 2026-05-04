@@ -98,6 +98,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     pinning in the chart; assumption recorded in rule comments).
     `docs/observability.md` § 3 gains a "Spec corrections from
     Cross-check 2" subsection. Test count is now 42/42 green.
+  - **Cross-check 2 in-loop follow-up**: same CC2-1 class of bug
+    (alert series lacks release-namespace label, escapes AMC sub-
+    route's `namespace=<release-ns>` matcher, falls through to global
+    Alertmanager default) was missed on both NATS alerts during the
+    cycle 8 fix. `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy`
+    fire on `nats_consumer_*` / `nats_stream_*` series from nats-
+    surveyor (which typically runs in its own namespace, not the
+    daedalus release namespace), so the source series' `namespace`
+    label does not match. Both alerts now carry a static
+    `namespace: "{{ .Release.Namespace }}"` rule label. Defense-in-
+    depth: the same static label is also applied to
+    `WorkerImagePullBackOff` / `WorkerCrashLoopBackOff` to harden
+    against future ServiceMonitor relabeling drift. A new
+    `alerts_test.sh` assertion regression-guards every rendered alert
+    carrying a static `namespace` label. Test count is now 43/43
+    green.
   - `docs/runbook.md`: new "Alertmanager receiver override" section with
     copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
     alert runbook entries (means / reproduce / diagnose / mitigate) are
