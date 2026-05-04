@@ -233,9 +233,15 @@ alerting:
       # "null" emits a no-op receiver so alerts are received and dropped.
       type: "null"
       # Type-specific config. See docs/runbook.md "Alertmanager receiver
-      # override" for copy-pasteable examples.
+      # override" for full setup, including the in-cluster translator services
+      # that mattermost and github require. PagerDuty has a native
+      # pagerdutyConfigs schema and works without a translator.
       #
-      # mattermost:  { webhook: "https://mattermost.example.com/hooks/xxxx" }
-      # github:      { webhook: "https://api.github.com/repos/<org>/<repo>/dispatches" }
+      # Examples (override receiver.type and receiver.config in your overlay):
+      # mattermost:  { webhook: "http://alertmanager-mattermost.monitoring.svc.cluster.local:8080/alerts" }
+      #              # requires an in-cluster translator; see runbook
+      # github:      { webhook: "http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook" }
+      #              # requires an in-cluster translator; see runbook
       # pagerduty:   { routingKeySecret: { name: "pagerduty-key", key: "routing-key" } }
+      #              # native; no translator needed
       config: {}
