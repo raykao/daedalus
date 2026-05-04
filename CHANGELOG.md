@@ -114,6 +114,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `alerts_test.sh` assertion regression-guards every rendered alert
     carrying a static `namespace` label. Test count is now 43/43
     green.
+  - **Cross-check 3 fixes** (third fresh-eyes pass; one High deferred,
+    four verified true-positives applied): (CC3-1, Medium)
+    `OTelCollectorDown` expr selector dropped its `namespace=` matcher
+    on `up{}`. The kube-prometheus-stack overlay (PR #30) deploys the
+    OTel collector in `monitoring`, not the chart's release namespace,
+    so the previous `namespace=<release-ns>` matcher would never match
+    and `absent()` would be permanently true. The static
+    `namespace="<release-ns>"` rule label is retained for AMC routing.
+    (CC3-2, Medium) `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy`
+    expr selectors now filter by `stream="<keda.natsStream>"`
+    (default `"AGENT_TASKS"`) so a shared nats-surveyor watching
+    multiple streams cannot fire either alert on an unrelated team's
+    stream and mis-attribute it to `daedalus_component=nats`.
+    (CC3-3, Low) `WorkerCrashLoopBackOff` description corrected from
+    "last 10 minutes" to "across the last ~20 minutes (rate window
+    10m, held 10m)"; the previous wording understated the effective
+    window by 10 minutes since `rate[10m]` is held `for: 10m`.
+    (CC3-4, Low) `docs/observability.md` Pass 1 Finding 5 entry gains
+    a forward note clarifying that the `on(account, stream)` clause
+    described an intermediate division expression that CC2-3 later
+    replaced with `nats_stream_consumer_count == 0 and
+    nats_stream_total_messages > 0` (no explicit matching clause
+    needed; both metrics carry the same label set). The `stream_name`
+    typo in that historical finding text is corrected to `stream`
+    to match nats-surveyor's actual label name. The CC3 High finding
+    on the runbook's PagerDuty secret namespace guidance is deferred
+    to a separate PR: the chart's default receiver is `null`,
+    PagerDuty is not wired or testable without real PagerDuty
+    credentials, and the runbook fix is best authored alongside an
+    actual PagerDuty configuration. Two new `alerts_test.sh`
+    assertions regression-guard the `stream=` filter on each NATS
+    alert; the OTel test was strengthened to negatively assert the
+    expr selector contains no `namespace=` matcher. Test count is
+    now 46/46 green.
   - `docs/runbook.md`: new "Alertmanager receiver override" section with
     copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
     alert runbook entries (means / reproduce / diagnose / mitigate) are

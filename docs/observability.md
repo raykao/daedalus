@@ -149,7 +149,16 @@ above is the corrected form. Originals and rationale:
 - **Finding 5 - `NATSStreamUnhealthy` implicit join.** Vector-to-vector
   division relied on implicit auto-matching, which can silently produce
   empty results if surveyor adds extra labels (e.g. `server_id`) on one
-  side. Now uses explicit `on(account, stream_name)` matching.
+  side. Now uses explicit `on(account, stream)` matching.
+
+  Note (CC2-3 follow-up): this `on()` clause was for an intermediate
+  division expression that Cross-check 2 finding CC2-3 later replaced
+  with `nats_stream_consumer_count == 0 and nats_stream_total_messages
+  > 0`. Both metrics carry the same label set, so no explicit matching
+  clause is needed in the current implementation. The original Pass 1
+  finding text used `stream_name`; the actual surveyor label is
+  `stream` (no `_name` suffix) - the corrected label name is reflected
+  here.
 
 #### Spec corrections from Cross-check 2
 
