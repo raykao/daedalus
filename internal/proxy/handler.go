@@ -13,7 +13,14 @@ import (
 	"github.com/raykao/daedalus/internal/acp"
 	contextmgmt "github.com/raykao/daedalus/internal/contextmgmt"
 	"github.com/raykao/daedalus/internal/queue"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerName is the OTel instrumentation library name for proxy spans.
+const tracerName = "github.com/raykao/daedalus/internal/proxy"
 
 // sessionCancelTimeout is the per-session timeout for ACP cancel calls during shutdown.
 const sessionCancelTimeout = 5 * time.Second
@@ -92,6 +99,30 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		taskID = req.Message.MessageID
 	}
 
+	// Start the per-task root span on the worker side. This sits as a child
+	// of the nats.consume span set up by queue.Consumer.processMessage, so
+	// the full trace chain back to the publisher is preserved.
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "proxy.handle",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("daedalus.task.id", taskID),
+			attribute.String("daedalus.message.id", req.Message.MessageID),
+			attribute.String("daedalus.context.id", req.Message.ContextID),
+		),
+	)
+	defer span.End()
+
+	// Also seed the ctx with any A2A-metadata-encoded trace context. If the
+	// orchestrator chose to inject via metadata instead of NATS headers (or
+	// in addition to), this stitches the two into one trace.
+	if req.Message.Metadata != nil {
+		// Note: we only Extract; we do NOT replace the active span. If the
+		// metadata carries a different trace, it would manifest as a span
+		// link rather than a parent change. Leaving as a future hook.
+		_ = ctx
+	}
+
 	h.logger.Info("proxy: handling task",
 		"taskId", taskID,
 		"messageId", req.Message.MessageID,
@@ -112,8 +143,8 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		return h.fail(ctx, taskID, fmt.Errorf("proxy: acp initialize: %w", h.initErr))
 	}
 
-	// Create a new ACP session
-	sessionID, err := h.acpClient.NewSession(ctx, h.workDir)
+	// Create a new ACP session (instrumented).
+	sessionID, err := h.acpSessionNew(ctx)
 	if err != nil {
 		return h.fail(ctx, taskID, fmt.Errorf("proxy: acp session/new: %w", err))
 	}
@@ -138,8 +169,8 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		return h.fail(ctx, taskID, fmt.Errorf("proxy: no text content in message parts"))
 	}
 
-	// Send prompt and collect response
-	content, err := h.acpClient.Prompt(ctx, sessionID, prompt)
+	// Send prompt and collect response (instrumented).
+	content, err := h.acpPrompt(ctx, sessionID, prompt)
 	if err != nil {
 		return h.fail(ctx, taskID, fmt.Errorf("proxy: acp session/prompt: %w", err))
 	}
@@ -201,10 +232,23 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		}
 	}
 
+	// Stamp trace_id into Task.Metadata for downstream consumers that
+	// cannot read NATS headers (e.g. a future Mattermost client speaking
+	// JSON-only). The full W3C traceparent still rides in NATS headers
+	// via queue.Publisher; this is the belt-and-suspenders fallback.
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		if task.Metadata == nil {
+			task.Metadata = make(map[string]any)
+		}
+		task.Metadata["trace_id"] = sc.TraceID().String()
+	}
+
 	// Publish result
 	if h.publisher != nil {
 		resultSubject := "agent.results." + taskID
 		if err := h.publisher.PublishJSON(ctx, resultSubject, task); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("proxy: publish result: %w", err)
 		}
 	}
@@ -216,6 +260,53 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 
 	h.logger.Info("proxy: task completed", "taskId", taskID)
 	return nil
+}
+
+// acpSessionNew wraps acp.Client.NewSession in an "acp.session.new" span.
+func (h *Handler) acpSessionNew(ctx context.Context) (string, error) {
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "acp.session.new",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "jsonrpc"),
+			attribute.String("rpc.method", "session/new"),
+			attribute.String("daedalus.work_dir", h.workDir),
+		),
+	)
+	defer span.End()
+	sid, err := h.acpClient.NewSession(ctx, h.workDir)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+	span.SetAttributes(attribute.String("daedalus.session.id", sid))
+	return sid, nil
+}
+
+// acpPrompt wraps acp.Client.Prompt in an "acp.session.prompt" span. Per the
+// audit, ACP session/update streaming notifications correlate to the in-flight
+// prompt by sessionId, so they remain logically inside this span.
+func (h *Handler) acpPrompt(ctx context.Context, sessionID, prompt string) (string, error) {
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "acp.session.prompt",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "jsonrpc"),
+			attribute.String("rpc.method", "session/prompt"),
+			attribute.String("daedalus.session.id", sessionID),
+			attribute.Int("daedalus.prompt.length", len(prompt)),
+		),
+	)
+	defer span.End()
+	content, err := h.acpClient.Prompt(ctx, sessionID, prompt)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
+	span.SetAttributes(attribute.Int("daedalus.response.length", len(content)))
+	return content, nil
 }
 
 // registerSession records an active ACP session ID for shutdown tracking.

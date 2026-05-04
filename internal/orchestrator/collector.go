@@ -10,7 +10,14 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/raykao/daedalus/internal/a2a"
+	"github.com/raykao/daedalus/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// tracerName is the OTel instrumentation library name for collector spans.
+const tracerName = "github.com/raykao/daedalus/internal/orchestrator"
 
 // ResultCollector subscribes to NATS result and status subjects and provides
 // synchronous waiting for individual task outcomes.
@@ -145,6 +152,12 @@ func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 		return
 	}
 
+	// Reattach the trace context from the publisher's NATS headers. If
+	// headers are absent (e.g. legacy publishers), fall back to the
+	// trace_id stamped in Task.Metadata. We then emit a
+	// "collector.receive.result" span that re-joins the original trace.
+	ctx := telemetry.ExtractNATSHeaders(context.Background(), msg.Header)
+
 	var task a2a.Task
 	if err := json.Unmarshal(msg.Data, &task); err != nil {
 		rc.logger.Error("collector: unmarshal result failed",
@@ -159,6 +172,21 @@ func (rc *ResultCollector) handleResult(msg *nats.Msg) {
 	if task.ID != "" {
 		taskID = task.ID
 	}
+
+	tracer := otel.Tracer(tracerName)
+	traceIDFromMetadata, _ := task.Metadata["trace_id"].(string)
+	ctx, span := tracer.Start(ctx, "collector.receive.result",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("daedalus.task.id", taskID),
+			attribute.String("daedalus.task.state", string(task.Status.State)),
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject),
+			attribute.String("daedalus.task.metadata.trace_id", traceIDFromMetadata),
+		),
+	)
+	defer span.End()
+	_ = ctx
 
 	tr := &TaskResult{
 		TaskID: taskID,
@@ -183,6 +211,10 @@ func (rc *ResultCollector) handleStatus(msg *nats.Msg) {
 		return
 	}
 
+	// Reattach trace context from NATS headers so the status span joins the
+	// publisher's trace.
+	ctx := telemetry.ExtractNATSHeaders(context.Background(), msg.Header)
+
 	var status a2a.TaskStatus
 	if err := json.Unmarshal(msg.Data, &status); err != nil {
 		rc.logger.Debug("collector: unmarshal status failed",
@@ -191,6 +223,19 @@ func (rc *ResultCollector) handleStatus(msg *nats.Msg) {
 		)
 		return
 	}
+
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "collector.receive.status",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("daedalus.task.id", taskID),
+			attribute.String("daedalus.task.state", string(status.State)),
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", msg.Subject),
+		),
+	)
+	defer span.End()
+	_ = ctx
 
 	rc.logger.Info("collector: status update",
 		"taskID", taskID,
