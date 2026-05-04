@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `docs/observability.md`: Pass 1 implementation spec for Phase 6 / Option C observability deepening. Covers trace ID end-to-end audit and gap-fill, per-agent-type fleet dashboards (cold-start, queue depth, throughput, error rate, task-to-artifact latency, top-slow tasks linked to Tempo), structural alert rules (no SLO thresholds in Pass 1), runbook entries, and a Phase 5 acceptance-criteria coverage appendix that maps AC1/AC2/AC5 to specific signals. Strategic rationale lives in `raykao/dark-factory:research/daedalus-observability.md`. Implementation handoff doc only - no platform code or behavior change.
+- `deploy/helm/daedalus/dashboards/.gitkeep`: landing zone for Pass 1 Grafana dashboard JSON.
 - `docs/phase6-options.md`: scoping/options menu for the next phase. Enumerates seven candidate directions (session-resurrection validation, second agent type, observability deepening, multi-replica orchestrator, production hardening, K8s operator, out-of-band) with maturity gates, scope, and trade-offs. No phase is committed; the doc is a decision input for the human to pick from.
 - **Phase 5.6 - documentation rewrite for the IaC path**: rewrote
   `docs/runbook.md` and `docs/aks-deployment.md` for the Phase 5
