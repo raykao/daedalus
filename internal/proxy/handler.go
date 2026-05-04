@@ -99,6 +99,23 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		taskID = req.Message.MessageID
 	}
 
+	// Reattach any A2A-metadata-encoded trace context BEFORE starting the
+	// proxy.handle span so the span joins the original trace. NATS
+	// headers win when present because they carry both trace_id and the
+	// publisher's span_id; metadata supplies trace_id only and produces
+	// a remote root within the existing trace.
+	metadataTraceID, _ := req.Message.Metadata["trace_id"].(string)
+	if metadataTraceID != "" && !trace.SpanContextFromContext(ctx).IsValid() {
+		if tid, err := trace.TraceIDFromHex(metadataTraceID); err == nil {
+			sc := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    tid,
+				TraceFlags: trace.FlagsSampled,
+				Remote:     true,
+			})
+			ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
+		}
+	}
+
 	// Start the per-task root span on the worker side. This sits as a child
 	// of the nats.consume span set up by queue.Consumer.processMessage, so
 	// the full trace chain back to the publisher is preserved.
@@ -112,16 +129,6 @@ func (h *Handler) Handle(ctx context.Context, data []byte) error {
 		),
 	)
 	defer span.End()
-
-	// Also seed the ctx with any A2A-metadata-encoded trace context. If the
-	// orchestrator chose to inject via metadata instead of NATS headers (or
-	// in addition to), this stitches the two into one trace.
-	if req.Message.Metadata != nil {
-		// Note: we only Extract; we do NOT replace the active span. If the
-		// metadata carries a different trace, it would manifest as a span
-		// link rather than a parent change. Leaving as a future hook.
-		_ = ctx
-	}
 
 	h.logger.Info("proxy: handling task",
 		"taskId", taskID,
