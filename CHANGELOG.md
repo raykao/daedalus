@@ -65,6 +65,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     row for `NATSStreamUnhealthy` in `docs/observability.md` § 3 now
     includes the explicit `and on(account, stream_name)` join that the
     rule already carried.
+  - **Cross-check 2 fixes** (second fresh-eyes pass against nats-
+    surveyor's actual metric exposition and AlertmanagerConfig sub-
+    route routing semantics, six corrections): (CC2-1, HIGH / merge
+    blocker) `OrchestratorDown` `absent()` leg gains a `namespace`
+    label matcher and the alert carries a static `namespace` label,
+    so the AMC sub-route's namespace matcher matches and the alert
+    no longer escapes to the global Alertmanager default. (CC2-2)
+    `NATSConsumerLagUnbounded` switched from the non-existent
+    `nats_jetstream_consumer_num_pending` to `nats_consumer_num_pending`
+    and from `$labels.consumer` to `$labels.consumer_name`, matching
+    nats-surveyor's JSZ exposition. (CC2-3) `NATSStreamUnhealthy`
+    rewritten to use surveyor-real metrics: the original used three
+    fictional series (`nats_jetstream_stream_messages_lost_total`,
+    `nats_jetstream_stream_max_bytes`,
+    `nats_jetstream_stream_storage_bytes`); none exist. Replaced with
+    `nats_stream_consumer_count == 0 and nats_stream_total_messages > 0`
+    for 10m, which catches the drainage-failure mode the lost-messages
+    leg was meant to cover. The capacity-ratio leg is dropped because
+    surveyor exposes no per-stream storage cap. (CC2-4)
+    `OTelCollectorDown` gains an `absent()` leg and a static
+    `namespace` label so the alert fires when the collector
+    deployment is missing entirely and routes through the AMC
+    regardless of the source `up{}` series' label set. (CC2-5)
+    `KEDAScalerError` scoped to the chart's release namespace
+    (`keda_scaler_errors_total{namespace="<release-ns>"}`) so other
+    teams' ScaledObject errors do not page Daedalus. (CC2-6)
+    PagerDuty example secret name unified to `pagerduty-routing-key`
+    across `values.yaml`, `docs/runbook.md`, and the chart test (was
+    three different names). Verification source: nats-io/nats-surveyor
+    `surveyor/collector_statz.go` @ commit 725f52d (no version
+    pinning in the chart; assumption recorded in rule comments).
+    `docs/observability.md` § 3 gains a "Spec corrections from
+    Cross-check 2" subsection. Test count is now 42/42 green.
   - `docs/runbook.md`: new "Alertmanager receiver override" section with
     copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
     alert runbook entries (means / reproduce / diagnose / mitigate) are

@@ -145,7 +145,7 @@ assert_match "KEDAScalerError carries namespace filter" \
 
 echo "[test] OTelCollectorDown covers absent collector and carries namespace label"
 assert_match "otel alert has absent() leg" \
-  'absent\(up\{job="otel-collector"\}\)' "$out_default"
+  'absent\(up\{job="otel-collector", namespace="default"\}\)' "$out_default"
 assert_match "otel alert has static namespace label" \
   'namespace: "default"' "$out_default"
 

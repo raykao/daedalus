@@ -92,9 +92,9 @@ spec:
         # namespace matcher matches regardless.
         - alert: OTelCollectorDown
           expr: |
-            absent(up{job="otel-collector"})
+            absent(up{job="otel-collector", namespace="{{ .Release.Namespace }}"})
             or
-            up{job="otel-collector"} == 0
+            up{job="otel-collector", namespace="{{ .Release.Namespace }}"} == 0
           for: 5m
           labels:
             severity: page
