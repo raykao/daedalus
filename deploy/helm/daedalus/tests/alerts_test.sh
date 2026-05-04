@@ -80,10 +80,10 @@ assert_match "pagerduty secret name"   'name: "pd-secret"' "$out_pd"
 echo "[test] receiver.type=github renders a webhook receiver"
 out_gh=$(helm template "$RELEASE" "$CHART_DIR" \
   --set alerting.alertmanagerConfig.receiver.type=github \
-  --set alerting.alertmanagerConfig.receiver.config.webhook=https://api.github.com/repos/raykao/daedalus/issues)
+  --set alerting.alertmanagerConfig.receiver.config.webhook=http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook)
 assert_match "github AlertmanagerConfig resource" "kind: AlertmanagerConfig" "$out_gh"
 assert_match "github webhookConfigs block"        "webhookConfigs:"          "$out_gh"
-assert_match "github webhook url"                 "https://api\.github\.com/repos/raykao/daedalus/issues" "$out_gh"
+assert_match "github webhook url"                 "http://alertmanager-github-receiver\.monitoring\.svc\.cluster\.local:8080/v1/webhook" "$out_gh"
 
 echo "[test] receiver.type=bogus is rejected at template time"
 bogus_output=""
