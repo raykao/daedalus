@@ -3,21 +3,18 @@
 # !! READ THIS BEFORE EDITING !!
 #
 # This file is rendered by `make deploy-aks-test` (deploy/scripts/deploy-aks.sh).
-# Image repositories are intentionally placeholders - the wrapper script
-# overrides them via `--set` because each engineer's Terraform deployment
-# produces a different ACR hostname (and the chart cannot template values).
-# Do not commit a hardcoded ACR hostname here; use the existing
-# deploy/helm/values-aks.yaml if you want a pinned-ACR overlay.
+# Image repositories are intentional placeholders: the wrapper script overrides
+# them via `--set` because each engineer's Terraform deployment produces a
+# different ACR hostname (and the chart cannot template values).
 #
 # Standalone helm install with this file (without --set image repositories)
 # WILL FAIL pulling images from "REPLACE_VIA_HELM_SET/...". This is by design:
 # it surfaces missing overrides loudly instead of silently pulling the wrong
 # image.
 #
-# Functionally equivalent to deploy/helm/values-aks.yaml: KEDA enabled, NATS
-# enabled, copilot worker with AKS-sized resources and GITHUB_TOKEN injection.
-# Differs only in:
-#   - Image repositories are placeholders overridden by the deploy script.
+# Layout:
+#   - KEDA enabled, NATS enabled, copilot worker with AKS-sized resources and
+#     GITHUB_TOKEN injection from the K8s `copilot-secret`.
 #   - imagePullSecrets is empty: kubelet identity AcrPull (provisioned by
 #     Terraform) is the preferred image-pull path. Add an entry here only if
 #     you have to fall back to a docker-registry secret.

@@ -33,7 +33,7 @@
 //   - EXPIRES_AT     ISO-8601 timestamp matching the cluster's `expires-at` resource-group
 //     tag; logged on test exit only (used purely for operator hint)
 //   - WORKER_SUBJECT NATS subject the proxy worker is listening on; defaults to
-//     "agent.tasks.copilot" (matches values-aks.yaml / values-aks-test.yaml).
+//     "agent.tasks.copilot" (matches deploy/helm/daedalus/values-aks-test.yaml).
 //     Override only if the deployed Helm values use a non-default workers[].queueSubject.
 //
 // # Stream bootstrap
