@@ -57,16 +57,17 @@ permissions:
   contents: read
 
 # Concurrency strategy:
-#   - Deploy-relevant runs (push to main, workflow_dispatch) share the `pages`
-#     group so deploys queue rather than overlap. cancel-in-progress=false
-#     keeps an in-flight deploy from being killed mid-publish (which can
-#     leave Pages half-updated).
-#   - PR runs do not deploy and must not contend for the deploy slot.
-#     They get a per-run-id group so they neither block each other nor
-#     block production deploys behind a burst of PR activity.
+#   - Deploy-bound runs (push to main, workflow_dispatch on main) share
+#     the `pages` group so deploys queue rather than overlap.
+#     cancel-in-progress=false keeps an in-flight deploy from being killed
+#     mid-publish (which can leave Pages half-updated).
+#   - All other runs (PRs, dispatches from feature branches) get a
+#     per-run-id group so they neither block each other nor block
+#     production deploys behind a burst of non-deploy activity.
 concurrency:
   group: >-
-    ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
         && 'pages'
         || format('{0}-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: false
