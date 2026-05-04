@@ -38,7 +38,7 @@ spec:
             namespace: "{{ .Release.Namespace }}"
           annotations:
             summary: "Daedalus worker pod is crash-looping"
-            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously for the last 10 minutes."
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously across the last ~20 minutes (rate window 10m, held 10m)."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-crashloop"
 
         # Covers both failure modes:
