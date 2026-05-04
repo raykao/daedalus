@@ -90,6 +90,22 @@ spec:
 
     - name: daedalus.dependencies
       rules:
+        # nats-surveyor metric verification (collector_statz.go @ HEAD,
+        # commit 725f52d, JSZ collection):
+        #   * Per-stream metrics are exposed under the prefix
+        #     `nats_stream_*` (NOT `nats_jetstream_stream_*`):
+        #       nats_stream_total_messages, nats_stream_total_bytes,
+        #       nats_stream_consumer_count, nats_stream_first_seq, ...
+        #     Labels: account, cluster_name, raft_group, server_id,
+        #     server_name, stream, stream_leader.
+        #   * Per-consumer metrics are exposed under `nats_consumer_*`:
+        #       nats_consumer_num_pending, nats_consumer_num_ack_pending,
+        #       nats_consumer_num_redelivered, ...
+        #     Labels: stream labels + consumer_name + consumer_leader.
+        # The label is `stream` (NO _name suffix); the consumer label is
+        # `consumer_name` (WITH _name suffix). The previously used
+        # `nats_jetstream_consumer_num_pending` does not exist.
+        #
         # Original spec used rate(nats_jetstream_consumer_acks_total[10m]) == 0
         # but nats-surveyor exposes only gauges; that counter does not exist.
         # Use gauges surveyor reliably exposes: pending count growing over 10m
@@ -97,16 +113,16 @@ spec:
         # transient single-digit pending blips when no consumer is attached.
         - alert: NATSConsumerLagUnbounded
           expr: |
-            delta(nats_jetstream_consumer_num_pending[10m]) > 0
+            delta(nats_consumer_num_pending[10m]) > 0
             and
-            nats_jetstream_consumer_num_pending > 100
+            nats_consumer_num_pending > 100
           for: 0m
           labels:
             severity: page
             daedalus_component: nats
           annotations:
             summary: "NATS JetStream consumer lag is growing"
-            description: "Consumer {{ "{{ $labels.consumer }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
+            description: "Consumer {{ "{{ $labels.consumer_name }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
 
         # Two failure modes:

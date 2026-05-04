@@ -129,6 +129,12 @@ assert_match "OrchestratorDown ==0 leg carries namespace matcher" \
   "kube_deployment_status_replicas_available\{namespace=\"default\", deployment=\"$RELEASE-daedalus-orchestrator\"\} == 0" \
   "$out_default"
 
+echo "[test] NATSConsumerLagUnbounded uses surveyor-real metric and labels"
+assert_match "consumer alert uses nats_consumer_num_pending (not jetstream_)" \
+  "delta\(nats_consumer_num_pending\[10m\]\) > 0" "$out_default"
+assert_match "consumer alert description references consumer_name label" \
+  '\$labels\.consumer_name' "$out_default"
+
 echo
 echo "results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

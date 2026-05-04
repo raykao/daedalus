@@ -111,7 +111,7 @@ Add Prometheus / Alertmanager rules under
 |-------|-----------|----------|----------------|
 | `WorkerImagePullBackOff` | `kube_pod_container_status_waiting_reason{reason="ImagePullBackOff", pod=~"daedalus-worker-.*"} > 0` for 2m | page | `worker-image-pull-backoff` |
 | `WorkerCrashLoopBackOff` | `rate(kube_pod_container_status_restarts_total{pod=~"daedalus-worker-.*"}[10m]) > 0` for 10m | page | `worker-crashloop` |
-| `NATSConsumerLagUnbounded` | `delta(nats_jetstream_consumer_num_pending[10m]) > 0` AND `nats_jetstream_consumer_num_pending > 100` | page | `nats-consumer-lag` |
+| `NATSConsumerLagUnbounded` | `delta(nats_consumer_num_pending[10m]) > 0` AND `nats_consumer_num_pending > 100` (description references `$labels.consumer_name` and `$labels.stream` to match nats-surveyor's actual label set: per `collector_statz.go`, the JSZ-derived consumer metric is `nats_consumer_num_pending` with labels including `stream` and `consumer_name`) | page | `nats-consumer-lag` |
 | `KEDAScalerError` | `rate(keda_scaler_errors_total[5m]) > 0` | page | `keda-scaler-error` |
 | `OTelCollectorDown` | `up{job="otel-collector"} == 0` for 5m | page | `otel-collector-down` |
 | `OrchestratorDown` | `absent(kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"})` OR `kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"} == 0` for 2m (alert also carries a static `namespace="<release-ns>"` label so the AlertmanagerConfig sub-route's namespace matcher matches even on the absent() leg) | page | `orchestrator-down` |
