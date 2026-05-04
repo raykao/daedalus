@@ -34,6 +34,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `PrometheusRule` / `AlertmanagerConfig` resources, (c) switching the
     receiver to `mattermost` or `pagerduty` renders the matching
     receiver block. 22/22 assertions green.
+  - **Pass 1 review fixes** (fresh-eyes cross-check of the rendered
+    rule against the spec table): corrected four PromQL defects that
+    were also present in the spec table in `docs/observability.md` § 3
+    and are now fixed in both places. (1) `WorkerCrashLoopBackOff`
+    threshold lowered from `> 0.3` (unreachable, equivalent to 180
+    restarts in 10m) to `> 0` held for 10m. (2) `NATSConsumerLagUnbounded`
+    rewritten to use gauges nats-surveyor actually exposes
+    (`delta(num_pending[10m]) > 0 and num_pending > 100`); the original
+    counter `nats_jetstream_consumer_acks_total` does not exist.
+    (3) `NATSStreamUnhealthy` capacity ratio guarded by `max_bytes > 0`
+    to prevent `+Inf > 0.9` false positives on unlimited streams, and
+    annotated with explicit `on(account, stream_name)` vector matching.
+    (4) `OrchestratorDown` OR'd with `absent(...)` so the alert fires
+    when the orchestrator deployment is missing entirely (today's
+    state) and not only when it exists with zero available replicas.
+    `docs/observability.md` § 3 gains a "Spec corrections from Pass 1
+    implementation" subsection recording these. Also: the GitHub
+    receiver test URL switched from `https://api.github.com/...` (which
+    contradicts the runbook) to the in-cluster translator pattern
+    `http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook`,
+    and a new test asserts that
+    `alerting.alertmanagerConfig.enabled=false` leaves the
+    `PrometheusRule` rendered while suppressing the `AlertmanagerConfig`.
+    Test count is now 32/32 green.
   - `docs/runbook.md`: new "Alertmanager receiver override" section with
     copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
     alert runbook entries (means / reproduce / diagnose / mitigate) are

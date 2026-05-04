@@ -117,6 +117,40 @@ Add Prometheus / Alertmanager rules under
 | `OrchestratorDown` | `absent(kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"})` OR `kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"} == 0` for 2m | page | `orchestrator-down` |
 | `NATSStreamUnhealthy` | `nats_jetstream_stream_messages_lost_total > 0` OR (`nats_jetstream_stream_max_bytes > 0` AND `(nats_jetstream_stream_storage_bytes / on(account, stream_name) nats_jetstream_stream_max_bytes) > 0.9`) | warn | `nats-stream-unhealthy` |
 
+#### Spec corrections from Pass 1 implementation
+
+A fresh-eyes cross-check of the rendered `PrometheusRule` against this
+spec table caught five PromQL defects in the original draft. The table
+above is the corrected form. Originals and rationale:
+
+- **Finding 1 - `WorkerCrashLoopBackOff` threshold (was `> 0.3`).** `0.3`
+  restart events per second sustained over 10 minutes is 180 restarts in
+  10 minutes; Kubernetes CrashLoopBackOff caps the gap between restarts
+  at ~5 minutes, so worst-case real flapping reaches ~0.005 r/s. The
+  original threshold was unreachable. Corrected to `> 0` held for 10m.
+- **Finding 2 - `NATSConsumerLagUnbounded` referenced a non-existent
+  metric.** The original AND-leg used
+  `rate(nats_jetstream_consumer_acks_total[10m]) == 0`, but
+  nats-surveyor exposes only gauges - that counter does not exist under
+  any name. Rewritten using gauges surveyor reliably exposes:
+  `delta(...num_pending[10m]) > 0` AND `...num_pending > 100`. The 100-
+  message floor avoids paging on transient single-digit blips.
+- **Finding 3 - `NATSStreamUnhealthy` divided by zero on unlimited
+  streams.** Unlimited-storage streams report `max_bytes == 0`; the
+  unguarded `storage_bytes / max_bytes` produced `+Inf`, and `+Inf > 0.9`
+  evaluates true, so every unlimited stream became a permanent false
+  positive. The capacity ratio is now guarded by `max_bytes > 0`.
+- **Finding 4 - `OrchestratorDown` did not fire on absent deployment.**
+  Bare `kube_deployment_status_replicas_available{...} == 0` matches
+  zero series when the deployment does not exist (which is today's
+  state, before the orchestrator deployment lands). OR'd with
+  `absent(<same selector>)` so the alert covers both "deployment exists
+  with 0 available replicas" and "deployment is missing entirely".
+- **Finding 5 - `NATSStreamUnhealthy` implicit join.** Vector-to-vector
+  division relied on implicit auto-matching, which can silently produce
+  empty results if surveyor adds extra labels (e.g. `server_id`) on one
+  side. Now uses explicit `on(account, stream_name)` matching.
+
 **No SLO threshold alerts in Pass 1.** Cold-start, task latency, and
 error-rate alerts wait for Pass 2.
 
