@@ -367,3 +367,88 @@ when this variable is set; useful as a guard in CI debugging.
 
 > Deeper architecture, configuration reference, and troubleshooting:
 > [AKS Deployment Guide](aks-deployment.md).
+
+---
+
+## Alertmanager receiver override
+
+The chart ships with `alerting.alertmanagerConfig.receiver.type: "null"` so a
+fresh deploy provisions the seven structural alerts without paging anyone.
+Pick one of the override blocks below and add it to your `values.yaml` (or
+`-f` overlay) to switch the default receiver.
+
+Per-alert routing rules (per-component, severity-based escalation, etc.) are
+out of scope for this release - sub-task 6.4 will add them once the per-alert
+runbook entries land.
+
+> **Translator note.** Of the three override types below, only `pagerduty`
+> works end-to-end with no extra infrastructure - Alertmanager has a native
+> `pagerdutyConfigs` schema for the Events API v2. Both `mattermost` and
+> `github` render an Alertmanager `webhookConfigs` block, and Alertmanager's
+> native webhook payload is its own JSON envelope that neither Mattermost
+> incoming webhooks nor the GitHub REST API understand. For those two you
+> **must** point the `webhook` URL at a small in-cluster translator that
+> converts the Alertmanager payload to the destination's expected shape.
+> Running that translator is the operator's responsibility; the chart only
+> renders the `webhookConfigs` block.
+
+### Mattermost
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: mattermost
+      config:
+        webhook: http://alertmanager-mattermost.monitoring.svc.cluster.local:8080/alerts
+```
+
+The `webhook` URL must point at a translator service (for example
+`alertmanager-webhook-mattermost` or any custom forwarder) that converts
+Alertmanager's webhook payload to Mattermost's Slack-compatible incoming
+webhook body (`{"text": ..., "attachments": [...]}`). Pointing the URL
+directly at a Mattermost incoming webhook will fire successfully but post
+unreadable JSON into the channel. Deploying the translator is out of scope
+for this chart.
+
+### GitHub
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: github
+      config:
+        webhook: http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook
+```
+
+The `webhook` URL must point at a compatible translator (for example the
+community `alertmanager-github-receiver`) that consumes Alertmanager's
+webhook payload and calls the GitHub API on your behalf. Do **not** point
+this URL at `https://api.github.com/repos/<org>/<repo>/dispatches` (or any
+other GitHub REST endpoint) directly: Alertmanager's webhook body shape is
+incompatible with `repository_dispatch`, and the chart's `webhookConfigs`
+block emits no auth headers, so direct calls return 401 or 422. Operating
+the translator (including how it authenticates to GitHub) is out of scope
+for this chart.
+
+### PagerDuty
+
+```yaml
+alerting:
+  alertmanagerConfig:
+    receiver:
+      type: pagerduty
+      config:
+        routingKeySecret:
+          name: pagerduty-routing-key
+          key: routing-key
+```
+
+The secret must already exist in the namespace where Alertmanager runs and
+contain the Events API v2 routing key. Create it once with:
+
+```bash
+kubectl -n monitoring create secret generic pagerduty-routing-key \
+  --from-literal=routing-key=<your-pagerduty-integration-key>
+```

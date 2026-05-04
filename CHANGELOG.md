@@ -9,7 +9,149 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Phase 6 sub-task 6.1 - trace propagation audit, gap-fill, and 100-task concurrent integration test.** Walked every hop of the task pipeline (orchestrator publish, NATS consume, proxy.Handle, ACP `session/new`, ACP `session/prompt`, ACP `session/update` stream, result publish, collector receive) and identified six gaps. Closed all six with the smallest possible code change: `internal/queue/nats.go` now injects W3C `traceparent` into NATS message headers on publish and extracts on consume (each emits a bounded-name `nats.publish` / `nats.consume` span; the subject lives on the canonical `messaging.destination.name` attribute, not in the span name, so dashboard aggregation by operation name stays tractable as task volume grows); `internal/proxy/handler.go` now starts a `proxy.handle` span and wraps ACP calls in `acp.session.new` / `acp.session.prompt` client-kind spans, plus stamps `trace_id` into `Task.Metadata` for downstream consumers that cannot read NATS headers, and reattaches `req.Message.Metadata["trace_id"]` as a remote parent on the proxy side when NATS headers are absent; `internal/orchestrator/collector.go` extracts trace context from result/status NATS headers and additionally falls back to `Task.Metadata["trace_id"]` (as a remote parent, not just an attribute) on the result path when headers are missing - NATS headers always win when present because they carry both trace_id and the publisher's span_id. Status path uses NATS headers only (`a2a.TaskStatus` has no `Metadata` field). Both collector paths emit `collector.receive.result` / `collector.receive.status` consumer spans that re-attach to the publisher's trace. New integration test `test/integration/trace-propagation/` (build tag `integration`) publishes 100 tasks concurrently, drives them through real NATS JetStream + a fake ACP TCP server, and asserts per-task that there is exactly one root span, that the expected core span set is present, that NATS spans carry the right `messaging.destination.name`, that span kinds match the documented tree (Producer/Consumer/Client/Internal), that no span has an unknown parent, and that all spans share one `trace_id`. Aggregate assertions verify exactly 100 distinct trace IDs and 100 roots. The test uses `tracetest.InMemoryExporter` with a `SimpleSpanProcessor` (rationale documented in the test README). Run with `make test-trace-propagation` or `go test -tags=integration ./test/integration/trace-propagation/...`. Files touched outside `internal/telemetry/`: `internal/queue/nats.go`, `internal/proxy/handler.go`, `internal/orchestrator/collector.go`, plus the new `test/integration/trace-propagation/` directory and a Makefile target.
-
+- **Phase 6.3 - structural alert rules and null Alertmanager receiver**:
+  - `deploy/helm/daedalus/templates/prometheusrule.yaml`: 7 structural
+    alerts (`WorkerImagePullBackOff`, `WorkerCrashLoopBackOff`,
+    `NATSConsumerLagUnbounded`, `KEDAScalerError`, `OTelCollectorDown`,
+    `OrchestratorDown`, `NATSStreamUnhealthy`), grouped into
+    `daedalus.platform` and `daedalus.dependencies`. Each alert carries
+    `severity` (`page` or `warn`), a `daedalus_component` label, and a
+    `runbook_url` pointing at `docs/runbook.md` anchors authored in
+    sub-task 6.4. Per `docs/observability.md` § 3, no SLO threshold
+    alerts in Pass 1 by design.
+  - `deploy/helm/daedalus/templates/alertmanagerconfig.yaml`: default
+    `null` receiver named `daedalus-default` so a fresh deploy provisions
+    the alerts without paging anyone. The receiver type is switchable to
+    `mattermost`, `github`, or `pagerduty` via a three-line values
+    override (see `docs/runbook.md` § "Alertmanager receiver override").
+  - `deploy/helm/daedalus/values.yaml`: new top-level `alerting:` section
+    (`enabled`, `prometheusOperator.releaseLabel`,
+    `alertmanagerConfig.{enabled,receiver.{type,config}}`). Both the
+    `PrometheusRule` and the `AlertmanagerConfig` are individually gated.
+  - `deploy/helm/daedalus/tests/alerts_test.sh`: shell-based Helm chart
+    test that asserts (a) all 7 alerts and runbook anchors render under
+    default values, (b) `alerting.enabled=false` produces zero
+    `PrometheusRule` / `AlertmanagerConfig` resources, (c) switching the
+    receiver to `mattermost` or `pagerduty` renders the matching
+    receiver block. 22/22 assertions green.
+  - **Pass 1 review fixes** (fresh-eyes cross-check of the rendered
+    rule against the spec table): corrected four PromQL defects that
+    were also present in the spec table in `docs/observability.md` § 3
+    and are now fixed in both places. (1) `WorkerCrashLoopBackOff`
+    threshold lowered from `> 0.3` (unreachable, equivalent to 180
+    restarts in 10m) to `> 0` held for 10m. (2) `NATSConsumerLagUnbounded`
+    rewritten to use gauges nats-surveyor actually exposes
+    (`delta(num_pending[10m]) > 0 and num_pending > 100`); the original
+    counter `nats_jetstream_consumer_acks_total` does not exist.
+    (3) `NATSStreamUnhealthy` capacity ratio guarded by `max_bytes > 0`
+    to prevent `+Inf > 0.9` false positives on unlimited streams, and
+    annotated with explicit `on(account, stream_name)` vector matching.
+    (4) `OrchestratorDown` OR'd with `absent(...)` so the alert fires
+    when the orchestrator deployment is missing entirely (today's
+    state) and not only when it exists with zero available replicas.
+    `docs/observability.md` § 3 gains a "Spec corrections from Pass 1
+    implementation" subsection recording these. Also: the GitHub
+    receiver test URL switched from `https://api.github.com/...` (which
+    contradicts the runbook) to the in-cluster translator pattern
+    `http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook`,
+    and a new test asserts that
+    `alerting.alertmanagerConfig.enabled=false` leaves the
+    `PrometheusRule` rendered while suppressing the `AlertmanagerConfig`.
+    Test count is now 32/32 green. Pass 2 review hygiene fixes:
+    `NATSConsumerLagUnbounded` description no longer claims "zero acks"
+    (counter doesn't exist; expr uses gauges); `OrchestratorDown`
+    description rewritten so it renders correctly when fired via the
+    `absent(...)` branch (no `$labels.namespace` reference); spec table
+    row for `NATSStreamUnhealthy` in `docs/observability.md` § 3 now
+    includes the explicit `and on(account, stream_name)` join that the
+    rule already carried.
+  - **Cross-check 2 fixes** (second fresh-eyes pass against nats-
+    surveyor's actual metric exposition and AlertmanagerConfig sub-
+    route routing semantics, six corrections): (CC2-1, HIGH / merge
+    blocker) `OrchestratorDown` `absent()` leg gains a `namespace`
+    label matcher and the alert carries a static `namespace` label,
+    so the AMC sub-route's namespace matcher matches and the alert
+    no longer escapes to the global Alertmanager default. (CC2-2)
+    `NATSConsumerLagUnbounded` switched from the non-existent
+    `nats_jetstream_consumer_num_pending` to `nats_consumer_num_pending`
+    and from `$labels.consumer` to `$labels.consumer_name`, matching
+    nats-surveyor's JSZ exposition. (CC2-3) `NATSStreamUnhealthy`
+    rewritten to use surveyor-real metrics: the original used three
+    fictional series (`nats_jetstream_stream_messages_lost_total`,
+    `nats_jetstream_stream_max_bytes`,
+    `nats_jetstream_stream_storage_bytes`); none exist. Replaced with
+    `nats_stream_consumer_count == 0 and nats_stream_total_messages > 0`
+    for 10m, which catches the drainage-failure mode the lost-messages
+    leg was meant to cover. The capacity-ratio leg is dropped because
+    surveyor exposes no per-stream storage cap. (CC2-4)
+    `OTelCollectorDown` gains an `absent()` leg and a static
+    `namespace` label so the alert fires when the collector
+    deployment is missing entirely and routes through the AMC
+    regardless of the source `up{}` series' label set. (CC2-5)
+    `KEDAScalerError` scoped to the chart's release namespace
+    (`keda_scaler_errors_total{namespace="<release-ns>"}`) so other
+    teams' ScaledObject errors do not page Daedalus. (CC2-6)
+    PagerDuty example secret name unified to `pagerduty-routing-key`
+    across `values.yaml`, `docs/runbook.md`, and the chart test (was
+    three different names). Verification source: nats-io/nats-surveyor
+    `surveyor/collector_statz.go` @ commit 725f52d (no version
+    pinning in the chart; assumption recorded in rule comments).
+    `docs/observability.md` § 3 gains a "Spec corrections from
+    Cross-check 2" subsection. Test count is now 42/42 green.
+  - **Cross-check 2 in-loop follow-up**: same CC2-1 class of bug
+    (alert series lacks release-namespace label, escapes AMC sub-
+    route's `namespace=<release-ns>` matcher, falls through to global
+    Alertmanager default) was missed on both NATS alerts during the
+    cycle 8 fix. `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy`
+    fire on `nats_consumer_*` / `nats_stream_*` series from nats-
+    surveyor (which typically runs in its own namespace, not the
+    daedalus release namespace), so the source series' `namespace`
+    label does not match. Both alerts now carry a static
+    `namespace: "{{ .Release.Namespace }}"` rule label. Defense-in-
+    depth: the same static label is also applied to
+    `WorkerImagePullBackOff` / `WorkerCrashLoopBackOff` to harden
+    against future ServiceMonitor relabeling drift. A new
+    `alerts_test.sh` assertion regression-guards every rendered alert
+    carrying a static `namespace` label. Test count is now 43/43
+    green.
+  - **Cross-check 3 fixes** (third fresh-eyes pass; one High deferred,
+    four verified true-positives applied): (CC3-1, Medium)
+    `OTelCollectorDown` expr selector dropped its `namespace=` matcher
+    on `up{}`. The kube-prometheus-stack overlay (PR #30) deploys the
+    OTel collector in `monitoring`, not the chart's release namespace,
+    so the previous `namespace=<release-ns>` matcher would never match
+    and `absent()` would be permanently true. The static
+    `namespace="<release-ns>"` rule label is retained for AMC routing.
+    (CC3-2, Medium) `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy`
+    expr selectors now filter by `stream="<keda.natsStream>"`
+    (default `"AGENT_TASKS"`) so a shared nats-surveyor watching
+    multiple streams cannot fire either alert on an unrelated team's
+    stream and mis-attribute it to `daedalus_component=nats`.
+    (CC3-3, Low) `WorkerCrashLoopBackOff` description corrected from
+    "last 10 minutes" to "across the last ~20 minutes (rate window
+    10m, held 10m)"; the previous wording understated the effective
+    window by 10 minutes since `rate[10m]` is held `for: 10m`.
+    (CC3-4, Low) `docs/observability.md` Pass 1 Finding 5 entry gains
+    a forward note clarifying that the `on(account, stream)` clause
+    described an intermediate division expression that CC2-3 later
+    replaced with `nats_stream_consumer_count == 0 and
+    nats_stream_total_messages > 0` (no explicit matching clause
+    needed; both metrics carry the same label set). The `stream_name`
+    typo in that historical finding text is corrected to `stream`
+    to match nats-surveyor's actual label name. The CC3 High finding
+    on the runbook's PagerDuty secret namespace guidance is deferred
+    to a separate PR: the chart's default receiver is `null`,
+    PagerDuty is not wired or testable without real PagerDuty
+    credentials, and the runbook fix is best authored alongside an
+    actual PagerDuty configuration. Two new `alerts_test.sh`
+    assertions regression-guard the `stream=` filter on each NATS
+    alert; the OTel test was strengthened to negatively assert the
+    expr selector contains no `namespace=` matcher. Test count is
+    now 46/46 green.
+  - `docs/runbook.md`: new "Alertmanager receiver override" section with
+    copy-pasteable Mattermost / GitHub / PagerDuty values blocks. Per-
+    alert runbook entries (means / reproduce / diagnose / mitigate) are
+    deferred to sub-task 6.4 by design.
 - `docs/observability.md`: Pass 1 implementation spec for Phase 6 / Option C observability deepening. Covers trace ID end-to-end audit and gap-fill, per-agent-type fleet dashboards (cold-start, queue depth, throughput, error rate, task-to-artifact latency, top-slow tasks linked to Tempo), structural alert rules (no SLO thresholds in Pass 1), runbook entries, and a Phase 5 acceptance-criteria coverage appendix that maps AC1/AC2/AC5 to specific signals. Strategic rationale lives in `raykao/dark-factory:research/daedalus-observability.md`. Implementation handoff doc only - no platform code or behavior change.
 - `deploy/helm/daedalus/dashboards/.gitkeep`: landing zone for Pass 1 Grafana dashboard JSON.
 - `docs/phase6-options.md`: scoping/options menu for the next phase. Enumerates seven candidate directions (session-resurrection validation, second agent type, observability deepening, multi-replica orchestrator, production hardening, K8s operator, out-of-band) with maturity gates, scope, and trade-offs. No phase is committed; the doc is a decision input for the human to pick from.

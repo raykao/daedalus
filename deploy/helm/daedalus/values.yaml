@@ -213,3 +213,35 @@ keda:
   # activationLagThreshold: scale from zero when any message exists
   activationLagThreshold: "0"
   natsStream: "AGENT_TASKS"
+
+# Alerting - Prometheus Operator PrometheusRule + AlertmanagerConfig.
+# Requires kube-prometheus-stack (or compatible Prometheus Operator) installed
+# in the cluster. Disable the entire section when running an out-of-band
+# alerting stack; disable just alertmanagerConfig.enabled when you manage your
+# own central Alertmanager configuration.
+alerting:
+  enabled: true
+  prometheusOperator:
+    # Value of the `release` label that the Prometheus Operator's
+    # ruleSelector / alertmanagerConfigSelector matches. Set to the Helm
+    # release name of your kube-prometheus-stack install.
+    releaseLabel: kube-prometheus-stack
+  alertmanagerConfig:
+    enabled: true
+    receiver:
+      # One of: "null" | "mattermost" | "github" | "pagerduty".
+      # "null" emits a no-op receiver so alerts are received and dropped.
+      type: "null"
+      # Type-specific config. See docs/runbook.md "Alertmanager receiver
+      # override" for full setup, including the in-cluster translator services
+      # that mattermost and github require. PagerDuty has a native
+      # pagerdutyConfigs schema and works without a translator.
+      #
+      # Examples (override receiver.type and receiver.config in your overlay):
+      # mattermost:  { webhook: "http://alertmanager-mattermost.monitoring.svc.cluster.local:8080/alerts" }
+      #              # requires an in-cluster translator; see runbook
+      # github:      { webhook: "http://alertmanager-github-receiver.monitoring.svc.cluster.local:8080/v1/webhook" }
+      #              # requires an in-cluster translator; see runbook
+      # pagerduty:   { routingKeySecret: { name: "pagerduty-routing-key", key: "routing-key" } }
+      #              # native; no translator needed
+      config: {}

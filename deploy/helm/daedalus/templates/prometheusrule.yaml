@@ -1,0 +1,214 @@
+{{- if .Values.alerting.enabled }}
+{{- $workerPrefix := printf "%s-worker-" (include "daedalus.fullname" .) -}}
+{{- $orchestratorName := printf "%s-orchestrator" (include "daedalus.fullname" .) -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "daedalus.fullname" . }}-alerts
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    release: {{ required "alerting.prometheusOperator.releaseLabel must be a non-empty string matching the kube-prometheus-stack release name (e.g. 'kube-prometheus-stack'); without it the Prometheus Operator's ruleSelector will not match and alerts will silently never fire" .Values.alerting.prometheusOperator.releaseLabel | quote }}
+spec:
+  groups:
+    - name: daedalus.platform
+      rules:
+        - alert: WorkerImagePullBackOff
+          expr: kube_pod_container_status_waiting_reason{reason="ImagePullBackOff", pod=~"{{ $workerPrefix }}.*"} > 0
+          for: 2m
+          labels:
+            severity: page
+            daedalus_component: worker
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "Daedalus worker pod cannot pull its container image"
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been in ImagePullBackOff for at least 2 minutes. The worker cannot start until the image becomes available."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-image-pull-backoff"
+
+        # Kubernetes CrashLoopBackOff caps backoff at ~5 min between restarts,
+        # so even worst-case real flapping only reaches ~0.005 restarts/sec
+        # over a 10m window. Fire on any sustained restart activity (> 0)
+        # held for 10m; the original > 0.3/sec threshold (180 restarts in
+        # 10m) is unreachable. See Pass 1 spec corrections in observability.md.
+        - alert: WorkerCrashLoopBackOff
+          expr: rate(kube_pod_container_status_restarts_total{pod=~"{{ $workerPrefix }}.*"}[10m]) > 0
+          for: 10m
+          labels:
+            severity: page
+            daedalus_component: worker
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "Daedalus worker pod is crash-looping"
+            description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously across the last ~20 minutes (rate window 10m, held 10m)."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-crashloop"
+
+        # Covers both failure modes:
+        #   1. Deployment exists with 0 available replicas.
+        #   2. Deployment is missing entirely (e.g. before the orchestrator
+        #      lands in the cluster, or after it has been accidentally
+        #      removed). Bare `== 0` matches no series in case 2 and the
+        #      alert would silently never fire.
+        # The synthesised series from absent() carries only the labels in
+        # its inner selector. The Prometheus Operator wraps each
+        # AlertmanagerConfig in a sub-route with a `namespace=<release-ns>`
+        # matcher, so an alert series without a namespace label escapes the
+        # AMC entirely and falls through to the global Alertmanager default
+        # receiver. Both legs therefore carry an explicit namespace matcher.
+        - alert: OrchestratorDown
+          expr: |
+            absent(kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ $orchestratorName }}"})
+            or
+            kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ $orchestratorName }}"} == 0
+          for: 2m
+          labels:
+            severity: page
+            daedalus_component: orchestrator
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "Daedalus orchestrator has zero available replicas"
+            description: "Deployment {{ $orchestratorName }} has zero available replicas or is not deployed. The orchestrator is unavailable."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#orchestrator-down"
+
+        # KEDA emits keda_scaler_errors_total cluster-wide; without a
+        # namespace filter, errors from any other team's ScaledObject in
+        # the cluster fire this alert with daedalus_component=keda
+        # attribution. Scope to the chart's release namespace.
+        - alert: KEDAScalerError
+          expr: rate(keda_scaler_errors_total{namespace="{{ .Release.Namespace }}"}[5m]) > 0
+          for: 0m
+          labels:
+            severity: page
+            daedalus_component: keda
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "KEDA scaler is reporting errors"
+            description: "KEDA scaler {{ "{{ $labels.scaler }}" }} for {{ "{{ $labels.scaledObject }}" }} in namespace {{ "{{ $labels.namespace }}" }} is producing errors. Autoscaling decisions for Daedalus workers are unreliable."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#keda-scaler-error"
+
+        # Mirrors OrchestratorDown: bare up{} == 0 returns no series if
+        # the OTel collector deployment / its ServiceMonitor is missing
+        # entirely, so the alert silently never fires. Combine with
+        # absent() to cover the missing case.
+        # The OTel collector typically does NOT run in the chart's
+        # release namespace - the kube-prometheus-stack overlay (PR #30)
+        # deploys it in `monitoring`, and many clusters run it via the
+        # OpenTelemetry Operator in its own namespace. A `namespace=`
+        # matcher on the expr selector would never match, so absent()
+        # would be permanently true and the alert would fire forever.
+        # The expr therefore matches on `job="otel-collector"` only;
+        # the static `namespace="{{ .Release.Namespace }}"` rule label
+        # below handles AMC sub-route routing regardless of where the
+        # source `up{}` series actually lives.
+        - alert: OTelCollectorDown
+          expr: |
+            absent(up{job="otel-collector"})
+            or
+            up{job="otel-collector"} == 0
+          for: 5m
+          labels:
+            severity: page
+            daedalus_component: otel
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "OTel collector is down"
+            description: "OpenTelemetry collector instance {{ "{{ $labels.instance }}" }} has been unreachable for 5 minutes. Trace and metric ingestion is degraded."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#otel-collector-down"
+
+    - name: daedalus.dependencies
+      rules:
+        # nats-surveyor metric verification (collector_statz.go @ HEAD,
+        # commit 725f52d, JSZ collection):
+        #   * Per-stream metrics are exposed under the prefix
+        #     `nats_stream_*` (NOT `nats_jetstream_stream_*`):
+        #       nats_stream_total_messages, nats_stream_total_bytes,
+        #       nats_stream_consumer_count, nats_stream_first_seq, ...
+        #     Labels: account, cluster_name, raft_group, server_id,
+        #     server_name, stream, stream_leader.
+        #   * Per-consumer metrics are exposed under `nats_consumer_*`:
+        #       nats_consumer_num_pending, nats_consumer_num_ack_pending,
+        #       nats_consumer_num_redelivered, ...
+        #     Labels: stream labels + consumer_name + consumer_leader.
+        # The label is `stream` (NO _name suffix); the consumer label is
+        # `consumer_name` (WITH _name suffix). The previously used
+        # `nats_jetstream_consumer_num_pending` does not exist.
+        #
+        # Original spec used rate(nats_jetstream_consumer_acks_total[10m]) == 0
+        # but nats-surveyor exposes only gauges; that counter does not exist.
+        # Use gauges surveyor reliably exposes: pending count growing over 10m
+        # AND non-trivially sized. The 100-message floor avoids paging on
+        # transient single-digit pending blips when no consumer is attached.
+        # nats-surveyor (the JetStream metrics exporter) typically runs
+        # in its own namespace, separate from the daedalus chart's
+        # release namespace. The `namespace` label that lands on
+        # `nats_consumer_*` / `nats_stream_*` series is therefore
+        # surveyor's pod namespace, NOT the release namespace, so the
+        # Prometheus Operator's AlertmanagerConfig sub-route matcher
+        # (`namespace=<release-ns>`) does not match. Pin a static
+        # namespace label on the rule so the alert is routed through
+        # the chart's AMC receiver instead of escaping to the global
+        # Alertmanager default. Same defense-in-depth pattern as
+        # OrchestratorDown / OTelCollectorDown.
+        # Filter to the daedalus task stream (`.Values.keda.natsStream`,
+        # defaults to "AGENT_TASKS"). Without this, if nats-surveyor
+        # watches multiple JetStream instances or unrelated streams in
+        # the same cluster, this alert would fire on any consumer in any
+        # stream and be mis-attributed to `daedalus_component=nats`.
+        # CC3 finding 2.
+        - alert: NATSConsumerLagUnbounded
+          expr: |
+            delta(nats_consumer_num_pending{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"}[10m]) > 0
+            and
+            nats_consumer_num_pending{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} > 100
+          for: 0m
+          labels:
+            severity: page
+            daedalus_component: nats
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "NATS JetStream consumer lag is growing"
+            description: "Consumer {{ "{{ $labels.consumer_name }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
+
+        # nats-surveyor metric reality (verified against
+        # surveyor/collector_statz.go @ commit 725f52d):
+        #   * NO per-stream "messages lost" counter or gauge exists.
+        #     `nats_jetstream_stream_messages_lost_total` is fictional.
+        #   * NO `nats_jetstream_stream_max_bytes` or
+        #     `nats_jetstream_stream_storage_bytes` exists; nats-surveyor
+        #     does not expose a per-stream storage cap. The capacity
+        #     ratio leg can therefore not be expressed against
+        #     surveyor-real metrics.
+        #   * What surveyor DOES expose per-stream (JSZ collection):
+        #       nats_stream_total_messages, nats_stream_total_bytes,
+        #       nats_stream_consumer_count, nats_stream_first_seq,
+        #       nats_stream_last_seq, nats_stream_subject_count
+        #     with labels: account, cluster_name, raft_group, server_id,
+        #     server_name, stream, stream_leader.
+        #
+        # Replacement signal for "stream unhealthy": a stream that has
+        # messages but no consumers attached cannot be drained, which
+        # is one of the failure modes the original "messages lost" leg
+        # was meant to catch. The capacity-ratio leg is dropped because
+        # there is no surveyor metric that supports it; per-server
+        # filestore usage is exposed via nats_jetstream_filestore_used_bytes
+        # which is server-scoped, not stream-scoped, and is covered by
+        # operational dashboards rather than this rule. See the spec's
+        # "Cross-check 2 corrections" subsection for rationale.
+        # Same stream-scoping rationale as NATSConsumerLagUnbounded
+        # (CC3 finding 2): without a `stream=` filter, this alert fires
+        # for any stream nats-surveyor sees with messages and no
+        # consumers, and gets mis-attributed to `daedalus_component=nats`.
+        - alert: NATSStreamUnhealthy
+          expr: |
+            nats_stream_consumer_count{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} == 0
+            and
+            nats_stream_total_messages{stream="{{ .Values.keda.natsStream | default "AGENT_TASKS" }}"} > 0
+          for: 10m
+          labels:
+            severity: warn
+            daedalus_component: nats
+            namespace: "{{ .Release.Namespace }}"
+          annotations:
+            summary: "NATS JetStream stream has messages but no consumers"
+            description: "Stream {{ "{{ $labels.stream }}" }} (account {{ "{{ $labels.account }}" }}) has stored messages but zero consumers attached for at least 10 minutes. Either every consumer disconnected or none was ever created; messages cannot be drained."
+            runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-stream-unhealthy"
+{{- end }}

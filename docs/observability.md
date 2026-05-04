@@ -110,12 +110,116 @@ Add Prometheus / Alertmanager rules under
 | Alert | Condition | Severity | Runbook anchor |
 |-------|-----------|----------|----------------|
 | `WorkerImagePullBackOff` | `kube_pod_container_status_waiting_reason{reason="ImagePullBackOff", pod=~"daedalus-worker-.*"} > 0` for 2m | page | `worker-image-pull-backoff` |
-| `WorkerCrashLoopBackOff` | `rate(kube_pod_container_status_restarts_total{pod=~"daedalus-worker-.*"}[10m]) > 0.3` | page | `worker-crashloop` |
-| `NATSConsumerLagUnbounded` | `delta(nats_jetstream_consumer_num_pending[10m]) > 0` AND `rate(nats_jetstream_consumer_acks_total[10m]) == 0` | page | `nats-consumer-lag` |
-| `KEDAScalerError` | `rate(keda_scaler_errors_total[5m]) > 0` | page | `keda-scaler-error` |
-| `OTelCollectorDown` | `up{job="otel-collector"} == 0` for 5m | page | `otel-collector-down` |
-| `OrchestratorDown` | `kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"} == 0` for 2m | page | `orchestrator-down` |
-| `NATSStreamUnhealthy` | `nats_jetstream_stream_messages_lost_total > 0` OR `nats_jetstream_stream_storage_bytes / nats_jetstream_stream_max_bytes > 0.9` | warn | `nats-stream-unhealthy` |
+| `WorkerCrashLoopBackOff` | `rate(kube_pod_container_status_restarts_total{pod=~"daedalus-worker-.*"}[10m]) > 0` for 10m | page | `worker-crashloop` |
+| `NATSConsumerLagUnbounded` | `delta(nats_consumer_num_pending{stream="<keda.natsStream>"}[10m]) > 0` AND `nats_consumer_num_pending{stream="<keda.natsStream>"} > 100` (description references `$labels.consumer_name` and `$labels.stream` to match nats-surveyor's actual label set: per `collector_statz.go`, the JSZ-derived consumer metric is `nats_consumer_num_pending` with labels including `stream` and `consumer_name`. The `stream=` filter scopes the alert to the daedalus task stream so a shared nats-surveyor watching unrelated streams does not page this rule.) | page | `nats-consumer-lag` |
+| `KEDAScalerError` | `rate(keda_scaler_errors_total{namespace="<release-ns>"}[5m]) > 0` (scoped to the chart's release namespace so other teams' ScaledObjects do not page this rule) | page | `keda-scaler-error` |
+| `OTelCollectorDown` | `absent(up{job="otel-collector"})` OR `up{job="otel-collector"} == 0` for 5m. The expr selector is intentionally not scoped by `namespace=`: the OTel collector typically runs in its own namespace (e.g. `monitoring`), not the chart's release namespace, so a `namespace=` matcher would never match and `absent()` would be permanently true. The alert carries a static `namespace="<release-ns>"` rule label so the AlertmanagerConfig sub-route routes it to the chart's receiver regardless of where the source `up{}` series actually lives. | page | `otel-collector-down` |
+| `OrchestratorDown` | `absent(kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"})` OR `kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"} == 0` for 2m (alert also carries a static `namespace="<release-ns>"` label so the AlertmanagerConfig sub-route's namespace matcher matches even on the absent() leg) | page | `orchestrator-down` |
+| `NATSStreamUnhealthy` | `nats_stream_consumer_count{stream="<keda.natsStream>"} == 0` AND `nats_stream_total_messages{stream="<keda.natsStream>"} > 0` for 10m. Both legs filter on the daedalus task stream so a shared nats-surveyor cannot fire this rule on an unrelated team's stream. The original spec used `nats_jetstream_stream_messages_lost_total > 0` OR a capacity ratio against `nats_jetstream_stream_max_bytes` / `nats_jetstream_stream_storage_bytes`; none of those metrics exist in nats-surveyor's exposition (verified against `collector_statz.go`). The replacement signal catches the same drainage-failure mode using `nats_stream_consumer_count` and `nats_stream_total_messages`, which surveyor does emit. | warn | `nats-stream-unhealthy` |
+
+#### Spec corrections from Pass 1 implementation
+
+A fresh-eyes cross-check of the rendered `PrometheusRule` against this
+spec table caught five PromQL defects in the original draft. The table
+above is the corrected form. Originals and rationale:
+
+- **Finding 1 - `WorkerCrashLoopBackOff` threshold (was `> 0.3`).** `0.3`
+  restart events per second sustained over 10 minutes is 180 restarts in
+  10 minutes; Kubernetes CrashLoopBackOff caps the gap between restarts
+  at ~5 minutes, so worst-case real flapping reaches ~0.005 r/s. The
+  original threshold was unreachable. Corrected to `> 0` held for 10m.
+- **Finding 2 - `NATSConsumerLagUnbounded` referenced a non-existent
+  metric.** The original AND-leg used
+  `rate(nats_jetstream_consumer_acks_total[10m]) == 0`, but
+  nats-surveyor exposes only gauges - that counter does not exist under
+  any name. Rewritten using gauges surveyor reliably exposes:
+  `delta(...num_pending[10m]) > 0` AND `...num_pending > 100`. The 100-
+  message floor avoids paging on transient single-digit blips.
+- **Finding 3 - `NATSStreamUnhealthy` divided by zero on unlimited
+  streams.** Unlimited-storage streams report `max_bytes == 0`; the
+  unguarded `storage_bytes / max_bytes` produced `+Inf`, and `+Inf > 0.9`
+  evaluates true, so every unlimited stream became a permanent false
+  positive. The capacity ratio is now guarded by `max_bytes > 0`.
+- **Finding 4 - `OrchestratorDown` did not fire on absent deployment.**
+  Bare `kube_deployment_status_replicas_available{...} == 0` matches
+  zero series when the deployment does not exist (which is today's
+  state, before the orchestrator deployment lands). OR'd with
+  `absent(<same selector>)` so the alert covers both "deployment exists
+  with 0 available replicas" and "deployment is missing entirely".
+- **Finding 5 - `NATSStreamUnhealthy` implicit join.** Vector-to-vector
+  division relied on implicit auto-matching, which can silently produce
+  empty results if surveyor adds extra labels (e.g. `server_id`) on one
+  side. Now uses explicit `on(account, stream)` matching.
+
+  Note (CC2-3 follow-up): this `on()` clause was for an intermediate
+  division expression that Cross-check 2 finding CC2-3 later replaced
+  with `nats_stream_consumer_count == 0 and nats_stream_total_messages
+  > 0`. Both metrics carry the same label set, so no explicit matching
+  clause is needed in the current implementation. The original Pass 1
+  finding text used `stream_name`; the actual surveyor label is
+  `stream` (no `_name` suffix) - the corrected label name is reflected
+  here.
+
+#### Spec corrections from Cross-check 2
+
+A second fresh-eyes cross-check, run against nats-surveyor's actual
+metric exposition (`collector_statz.go` @ commit 725f52d) and against
+the AlertmanagerConfig sub-route routing semantics, surfaced six
+additional defects. The table above is the corrected form.
+
+- **CC2-1 (HIGH, was a merge blocker) - `OrchestratorDown` lacked a
+  namespace label on the `absent()` leg.** The Prometheus Operator
+  wraps each AlertmanagerConfig in a sub-route that injects a
+  `namespace=<AMC-namespace>` matcher. The synthesised series from
+  `absent()` carries only the labels in the inner selector; without
+  one, the series escaped the AMC and fell through to the global
+  Alertmanager default receiver. Both legs now carry an explicit
+  `namespace="<release-ns>"` matcher and the alert carries a static
+  `namespace` label.
+- **CC2-2 - `NATSConsumerLagUnbounded` used a non-existent metric and
+  the wrong consumer label.** `nats_jetstream_consumer_num_pending`
+  does not exist; surveyor's JSZ-derived metric is
+  `nats_consumer_num_pending`. The consumer label is `consumer_name`
+  (with `_name`), not `consumer`. Both expr and description now
+  match surveyor's actual exposition.
+- **CC2-3 - `NATSStreamUnhealthy` referenced three fictional metrics.**
+  None of `nats_jetstream_stream_messages_lost_total`,
+  `nats_jetstream_stream_max_bytes`, or
+  `nats_jetstream_stream_storage_bytes` exist in surveyor's
+  exposition. The rule was silently never firing on either leg.
+  Replaced with a surveyor-real signal that catches the same
+  drainage-failure mode: `nats_stream_consumer_count == 0 and
+  nats_stream_total_messages > 0` for 10m. The capacity-ratio leg is
+  dropped because no per-stream storage cap is exposed.
+- **CC2-4 - `OTelCollectorDown` had no `absent()` guard.** Same class
+  of bug as CC2-1 / pre-existing finding 4. If the collector and its
+  ServiceMonitor are missing entirely, `up{}` returns no series and
+  the bare `==0` does not fire. Now wraps in `absent()` and carries a
+  static `namespace` label so the AMC sub-route routes correctly
+  regardless of the source `up{}` series' label set.
+- **CC2-5 - `KEDAScalerError` was cluster-scoped.** KEDA emits
+  `keda_scaler_errors_total` cluster-wide; without a namespace
+  filter, errors from any other team's ScaledObject paged this rule
+  with `daedalus_component=keda` attribution. Now scoped to
+  `namespace="<release-ns>"`.
+- **CC2-6 - PagerDuty example secret name diverged across surfaces.**
+  `values.yaml`, `docs/runbook.md`, and the chart test used three
+  different example names. Aligned to `pagerduty-routing-key` (the
+  runbook's literal `kubectl create secret` invocation).
+- **CC2 in-loop follow-up - same CC2-1 class of bug on both NATS
+  alerts.** `NATSConsumerLagUnbounded` and `NATSStreamUnhealthy` fire
+  on `nats_consumer_*` / `nats_stream_*` metrics from nats-surveyor,
+  which typically runs in its own namespace; the source series'
+  `namespace` label is surveyor's pod namespace, not the release
+  namespace, so the AMC sub-route matcher does not match and the
+  alerts escape to the global default. Both alerts now carry a static
+  `namespace="<release-ns>"` rule label. Defense-in-depth: the same
+  static label is applied to `WorkerImagePullBackOff` and
+  `WorkerCrashLoopBackOff` (whose kube-state-metrics source label
+  already resolves to the release namespace) so the chart is hardened
+  against any future ServiceMonitor relabeling drift. A new test in
+  `alerts_test.sh` asserts every rendered alert carries a static
+  `namespace` label so future additions cannot regress this class.
 
 **No SLO threshold alerts in Pass 1.** Cold-start, task latency, and
 error-rate alerts wait for Pass 2.

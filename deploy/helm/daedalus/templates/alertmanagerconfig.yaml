@@ -1,0 +1,41 @@
+{{- if and .Values.alerting.enabled .Values.alerting.alertmanagerConfig.enabled }}
+{{- $receiver := .Values.alerting.alertmanagerConfig.receiver }}
+{{- $type := default "null" $receiver.type }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "daedalus.fullname" . }}-alertmanager
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    release: {{ required "alerting.prometheusOperator.releaseLabel must be a non-empty string matching the kube-prometheus-stack release name (e.g. 'kube-prometheus-stack'); without it the Prometheus Operator's alertmanagerConfigSelector will not match and routing config will silently never load" .Values.alerting.prometheusOperator.releaseLabel | quote }}
+spec:
+  route:
+    receiver: daedalus-default
+    groupBy: ["alertname", "daedalus_component"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    # Per-component severity routing lands in sub-task 6.4 once runbook entries exist.
+  receivers:
+    - name: daedalus-default
+      {{- if eq $type "null" }}
+      # null receiver: receive everything, send nothing.
+      # Override via alerting.alertmanagerConfig.receiver.{type,config} in values.yaml.
+      {{- else if eq $type "mattermost" }}
+      webhookConfigs:
+        - url: {{ required "alerting.alertmanagerConfig.receiver.config.webhook is required for mattermost" $receiver.config.webhook | quote }}
+          sendResolved: {{ default true $receiver.config.sendResolved }}
+      {{- else if eq $type "github" }}
+      webhookConfigs:
+        - url: {{ required "alerting.alertmanagerConfig.receiver.config.webhook is required for github" $receiver.config.webhook | quote }}
+          sendResolved: {{ default true $receiver.config.sendResolved }}
+      {{- else if eq $type "pagerduty" }}
+      pagerdutyConfigs:
+        - routingKey:
+            name: {{ required "alerting.alertmanagerConfig.receiver.config.routingKeySecret.name is required for pagerduty" $receiver.config.routingKeySecret.name | quote }}
+            key: {{ default "routing-key" $receiver.config.routingKeySecret.key | quote }}
+          sendResolved: {{ default true $receiver.config.sendResolved }}
+      {{- else }}
+      {{- fail (printf "alerting.alertmanagerConfig.receiver.type %q is not supported. Use one of: null, mattermost, github, pagerduty." $type) }}
+      {{- end }}
+{{- end }}
