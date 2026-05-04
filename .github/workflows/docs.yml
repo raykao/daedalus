@@ -28,8 +28,10 @@
 #        (Apex-style domains would need A/AAAA records to GitHub Pages IPs.
 #         daedalus.raykao.io is a subdomain, so CNAME is correct.)
 #
-#   4. (Optional but recommended) Settings -> Environments -> github-pages
-#        Restrict deploys to the `main` branch only.
+#   4. (Defense in depth) Settings -> Environments -> github-pages
+#        Restrict deployments to the `main` branch.
+#        The workflow's dispatch path is already gated to refs/heads/main,
+#        but the environment rule provides a second enforcement layer.
 # -----------------------------------------------------------------------------
 
 name: docs
@@ -54,10 +56,19 @@ on:
 permissions:
   contents: read
 
-# Queue Pages deploys instead of cancelling in-flight ones. A cancelled
-# deploy can leave Pages in a half-updated state; queueing is safer.
+# Concurrency strategy:
+#   - Deploy-relevant runs (push to main, workflow_dispatch) share the `pages`
+#     group so deploys queue rather than overlap. cancel-in-progress=false
+#     keeps an in-flight deploy from being killed mid-publish (which can
+#     leave Pages half-updated).
+#   - PR runs do not deploy and must not contend for the deploy slot.
+#     They get a per-run-id group so they neither block each other nor
+#     block production deploys behind a burst of PR activity.
 concurrency:
-  group: pages
+  group: >-
+    ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        && 'pages'
+        || format('{0}-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -97,11 +108,15 @@ jobs:
       # PRs from forks cannot upload Pages artifacts anyway, and we do not
       # need the artifact for build-only validation.
       - name: Configure Pages
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -112,7 +127,9 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to GitHub Pages
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
