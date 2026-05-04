@@ -149,6 +149,21 @@ assert_match "otel alert has absent() leg" \
 assert_match "otel alert has static namespace label" \
   'namespace: "default"' "$out_default"
 
+echo "[test] every alert carries a static namespace label"
+# Defense-in-depth regression guard for CC2-1 / its NATS in-loop follow-up:
+# the AlertmanagerConfig sub-route matches on namespace=<release-ns>, so any
+# alert whose source metrics do not carry a release-namespace label must pin
+# it as a static rule label or the alert escapes the chart's AMC. Asserting
+# every rendered alert has one closes the door on future regressions.
+total_alerts=$(printf '%s' "$out_default" | grep -cE '^[[:space:]]+- alert: ' || true)
+namespace_alerts=$(printf '%s' "$out_default" | awk '
+  /^[[:space:]]+- alert:/ {alert=1; ns=0; next}
+  alert && /^[[:space:]]+annotations:/ { if (ns) count++; alert=0; ns=0; next }
+  alert && /^[[:space:]]+namespace:[[:space:]]/ {ns=1}
+  END {print count+0}
+')
+assert_eq "every alert has namespace label" "$total_alerts" "$namespace_alerts"
+
 # Negative: ensure no fictional nats-surveyor metrics are USED (not just
 # mentioned in comments) in the rendered chart. Filter out comment lines.
 if printf '%s' "$out_default" | grep -vE '^\s*#' | grep -qE 'nats_jetstream_stream_(messages_lost|max_bytes|storage_bytes)|nats_jetstream_consumer_num_pending'; then
