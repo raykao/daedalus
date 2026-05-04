@@ -35,7 +35,7 @@ spans would have been orphans on the back end of NATS.
 | 5 | ACP `session/prompt` | Same as #4. **GAP.** | Wrapped in `acp.session.prompt` span. | `internal/proxy/handler.go` |
 | 6 | ACP `session/update` stream (server -> client notifications) | The ACP wire (NDJSON over TCP) does not carry a header channel and the ACP spec does not define one. Streaming notifications correlate to the in-flight `session/prompt` call by `sessionId`, so they remain logically inside the `acp.session.prompt` span on the client side. **No code change needed**: the client-side span already covers the streaming window. | Unchanged. Documented. | - |
 | 7 | result publish (`agent.results.*`) | Same root cause as hop 2. The result `a2a.Task` envelope did not carry a `trace_id` field either. **GAP.** | Result publish goes through the now-instrumented `Publisher.PublishJSON` (NATS headers carry the full W3C `traceparent`). The result `Task.Metadata["trace_id"]` is also stamped by the proxy as a belt-and-suspenders escape hatch for downstream consumers that cannot read NATS headers (e.g. a future Mattermost client speaking JSON-only). | `internal/proxy/handler.go` |
-| 8 | orchestrator collector | `ResultCollector.handleResult` did not extract headers and did not emit a span. Trace context died on the way back. **GAP.** | `handleResult` and `handleStatus` extract NATS headers via `telemetry.ExtractNATSHeaders`, also pull `trace_id` from `Task.Metadata` as a fallback, and emit a `collector.receive.result` (resp. `collector.receive.status`) span as the child of the publish span. | `internal/orchestrator/collector.go` |
+| 8 | orchestrator collector | `ResultCollector.handleResult` did not extract headers and did not emit a span. Trace context died on the way back. **GAP.** | `handleResult` extracts NATS headers via `telemetry.ExtractNATSHeaders` AND falls back to `Task.Metadata["trace_id"]` as a remote parent when headers are absent (NATS headers win when present because they carry both `trace_id` and the publisher's `span_id`; the metadata fallback supplies `trace_id` only and produces a remote root within the existing trace). `handleStatus` performs only the header-extract step because `a2a.TaskStatus` has no `Metadata` field; status messages always carry `traceparent` in NATS headers. Both paths emit `collector.receive.result` / `collector.receive.status` consumer spans that re-attach to the publisher's trace. | `internal/orchestrator/collector.go` |
 
 ### Note on the spec's "stdout pipe to the agent CLI" gap candidate
 
@@ -74,26 +74,42 @@ emitted and form a single trace:
 
 ```
 test.dispatch                              (root, kind=internal)
-└─ nats.publish agent.tasks.<taskId>       (kind=producer)
-   └─ nats.consume agent.tasks.<taskId>    (kind=consumer)
-      └─ proxy.handle <taskId>             (kind=internal)
+└─ nats.publish                            (kind=producer, messaging.destination.name=agent.tasks.<taskId>)
+   └─ nats.consume                         (kind=consumer, messaging.destination.name=agent.tasks.<taskId>)
+      └─ proxy.handle                      (kind=internal, daedalus.task.id=<taskId>)
          ├─ acp.session.new                (kind=client)
          ├─ acp.session.prompt             (kind=client)
-         └─ nats.publish agent.results.<taskId>  (kind=producer)
+         └─ nats.publish                   (kind=producer, messaging.destination.name=agent.results.<taskId>)
             └─ collector.receive.result    (kind=consumer)
 ```
 
-Span counts per task: **8 spans**, of which exactly **1** is the root
-(`test.dispatch`). All 8 share the same `trace_id`. Non-root spans each
-have a `parent_span_id` that exists somewhere in the tree.
+Per-task identity (subject, task ID) lives on attributes, not span names,
+so that Tempo/Grafana/Honeycomb dashboards that aggregate by operation
+name see a bounded set (~8 distinct names across the whole trace tree)
+no matter how many tasks the system has processed.
 
-Across 100 tasks: 800 total spans, 100 distinct trace IDs, 100 roots,
-zero cross-trace orphans.
+Span counts per task:
 
-The test also publishes intermediate `agent.status.*` messages (working,
-completed); the propagation path is identical to the result path, but
-the test only asserts on the result trace because that is the
-deterministic terminal hop.
+- **8 asserted "core" spans**: `test.dispatch`, two `nats.publish` (one for
+  the task subject and one for the result subject), one `nats.consume`,
+  `proxy.handle`, `acp.session.new`, `acp.session.prompt`, and
+  `collector.receive.result`.
+- Plus a variable number of intermediate **status spans**: the proxy
+  publishes `agent.status.<taskId>` updates (`working`, `completed`),
+  each emitting one `nats.publish` (producer side) and one
+  `collector.receive.status` (consumer side). The exact count varies by
+  status sequence (typically 4 extra spans per task: 2 publish + 2
+  consume).
+
+Across 100 tasks: ~1199 total spans observed, 100 distinct trace IDs,
+100 roots, zero cross-trace orphans. The integration test asserts the
+core span set, the bounded-name attribute mapping, and the span kinds;
+it does not pin the exact total because the status sequence varies.
+
+The test only asserts on the result trace because that is the
+deterministic terminal hop; status spans propagate through the same
+header/metadata channels and carry the same trace ID, so verifying
+result-side propagation is sufficient.
 
 ---
 
