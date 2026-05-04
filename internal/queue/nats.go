@@ -220,6 +220,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg jetstream.Msg, handle
 
 	if ackErr := msg.Ack(); ackErr != nil {
 		span.RecordError(ackErr)
+		span.SetStatus(codes.Error, ackErr.Error())
 		c.logger.Error("nats: ack failed", "err", ackErr)
 	}
 }
