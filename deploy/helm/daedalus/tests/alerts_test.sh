@@ -100,6 +100,20 @@ fi
 assert_match "bogus error mentions 'is not supported'" "is not supported" "$bogus_output"
 assert_match "bogus error names the bad value"         "bogus"            "$bogus_output"
 
+echo "[test] empty releaseLabel is rejected at template time"
+empty_rl_output=""
+empty_rl_rc=0
+empty_rl_output=$(helm template "$RELEASE" "$CHART_DIR" \
+  --set alerting.prometheusOperator.releaseLabel="" 2>&1) || empty_rl_rc=$?
+if [ "$empty_rl_rc" -ne 0 ]; then
+  echo "  ok   empty releaseLabel exits non-zero"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL empty releaseLabel exits non-zero (got 0)"
+  FAIL=$((FAIL + 1))
+fi
+assert_match "empty releaseLabel error mentions the value name" "releaseLabel must be a non-empty string" "$empty_rl_output"
+
 echo
 echo "results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

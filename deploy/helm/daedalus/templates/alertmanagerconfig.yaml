@@ -7,9 +7,7 @@ metadata:
   name: {{ include "daedalus.fullname" . }}-alertmanager
   labels:
     {{- include "daedalus.labels" . | nindent 4 }}
-    {{- with .Values.alerting.prometheusOperator.releaseLabel }}
-    release: {{ . | quote }}
-    {{- end }}
+    release: {{ required "alerting.prometheusOperator.releaseLabel must be a non-empty string matching the kube-prometheus-stack release name (e.g. 'kube-prometheus-stack'); without it the Prometheus Operator's alertmanagerConfigSelector will not match and routing config will silently never load" .Values.alerting.prometheusOperator.releaseLabel | quote }}
 spec:
   route:
     receiver: daedalus-default
