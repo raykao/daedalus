@@ -115,7 +115,7 @@ Add Prometheus / Alertmanager rules under
 | `KEDAScalerError` | `rate(keda_scaler_errors_total[5m]) > 0` | page | `keda-scaler-error` |
 | `OTelCollectorDown` | `up{job="otel-collector"} == 0` for 5m | page | `otel-collector-down` |
 | `OrchestratorDown` | `absent(kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"})` OR `kube_deployment_status_replicas_available{namespace="<release-ns>", deployment="daedalus-orchestrator"} == 0` for 2m (alert also carries a static `namespace="<release-ns>"` label so the AlertmanagerConfig sub-route's namespace matcher matches even on the absent() leg) | page | `orchestrator-down` |
-| `NATSStreamUnhealthy` | `nats_jetstream_stream_messages_lost_total > 0` OR (`nats_jetstream_stream_max_bytes > 0` AND `on(account, stream_name)` `(nats_jetstream_stream_storage_bytes / on(account, stream_name) nats_jetstream_stream_max_bytes) > 0.9`) | warn | `nats-stream-unhealthy` |
+| `NATSStreamUnhealthy` | `nats_stream_consumer_count == 0` AND `nats_stream_total_messages > 0` for 10m. The original spec used `nats_jetstream_stream_messages_lost_total > 0` OR a capacity ratio against `nats_jetstream_stream_max_bytes` / `nats_jetstream_stream_storage_bytes`; none of those metrics exist in nats-surveyor's exposition (verified against `collector_statz.go`). The replacement signal catches the same drainage-failure mode using `nats_stream_consumer_count` and `nats_stream_total_messages`, which surveyor does emit. | warn | `nats-stream-unhealthy` |
 
 #### Spec corrections from Pass 1 implementation
 

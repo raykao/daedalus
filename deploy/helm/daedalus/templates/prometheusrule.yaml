@@ -125,28 +125,42 @@ spec:
             description: "Consumer {{ "{{ $labels.consumer_name }}" }} on stream {{ "{{ $labels.stream }}" }} has rising pending messages over 10m and a backlog above 100. Either workers are not draining the queue, or publish rate is exceeding consume rate."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-consumer-lag"
 
-        # Two failure modes:
-        #   1. Reported message loss (counter > 0).
-        #   2. Stream nearing its configured storage cap.
-        # The capacity ratio is guarded by `max_bytes > 0` because unlimited
-        # streams report max_bytes == 0 and the unguarded division produced
-        # +Inf > 0.9 = true for every unlimited stream. Use explicit
-        # `on(account, stream_name)` matching so the join is deterministic
-        # if surveyor adds extra labels (e.g. server_id) on one side only.
+        # nats-surveyor metric reality (verified against
+        # surveyor/collector_statz.go @ commit 725f52d):
+        #   * NO per-stream "messages lost" counter or gauge exists.
+        #     `nats_jetstream_stream_messages_lost_total` is fictional.
+        #   * NO `nats_jetstream_stream_max_bytes` or
+        #     `nats_jetstream_stream_storage_bytes` exists; nats-surveyor
+        #     does not expose a per-stream storage cap. The capacity
+        #     ratio leg can therefore not be expressed against
+        #     surveyor-real metrics.
+        #   * What surveyor DOES expose per-stream (JSZ collection):
+        #       nats_stream_total_messages, nats_stream_total_bytes,
+        #       nats_stream_consumer_count, nats_stream_first_seq,
+        #       nats_stream_last_seq, nats_stream_subject_count
+        #     with labels: account, cluster_name, raft_group, server_id,
+        #     server_name, stream, stream_leader.
+        #
+        # Replacement signal for "stream unhealthy": a stream that has
+        # messages but no consumers attached cannot be drained, which
+        # is one of the failure modes the original "messages lost" leg
+        # was meant to catch. The capacity-ratio leg is dropped because
+        # there is no surveyor metric that supports it; per-server
+        # filestore usage is exposed via nats_jetstream_filestore_used_bytes
+        # which is server-scoped, not stream-scoped, and is covered by
+        # operational dashboards rather than this rule. See the spec's
+        # "Cross-check 2 corrections" subsection for rationale.
         - alert: NATSStreamUnhealthy
           expr: |
-            nats_jetstream_stream_messages_lost_total > 0
-            or (
-              nats_jetstream_stream_max_bytes > 0
-              and on(account, stream_name)
-              (nats_jetstream_stream_storage_bytes / on(account, stream_name) nats_jetstream_stream_max_bytes) > 0.9
-            )
-          for: 0m
+            nats_stream_consumer_count == 0
+            and
+            nats_stream_total_messages > 0
+          for: 10m
           labels:
             severity: warn
             daedalus_component: nats
           annotations:
-            summary: "NATS JetStream stream is lossy or near capacity"
-            description: "Stream {{ "{{ $labels.stream }}" }} has either reported lost messages or is using more than 90% of its configured max storage."
+            summary: "NATS JetStream stream has messages but no consumers"
+            description: "Stream {{ "{{ $labels.stream }}" }} (account {{ "{{ $labels.account }}" }}) has stored messages but zero consumers attached for at least 10 minutes. Either every consumer disconnected or none was ever created; messages cannot be drained."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#nats-stream-unhealthy"
 {{- end }}

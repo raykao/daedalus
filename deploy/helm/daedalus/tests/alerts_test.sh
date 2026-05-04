@@ -129,11 +129,25 @@ assert_match "OrchestratorDown ==0 leg carries namespace matcher" \
   "kube_deployment_status_replicas_available\{namespace=\"default\", deployment=\"$RELEASE-daedalus-orchestrator\"\} == 0" \
   "$out_default"
 
-echo "[test] NATSConsumerLagUnbounded uses surveyor-real metric and labels"
+echo "[test] NATSStreamUnhealthy uses surveyor-real metrics (no fictional jetstream_stream_*)"
 assert_match "consumer alert uses nats_consumer_num_pending (not jetstream_)" \
   "delta\(nats_consumer_num_pending\[10m\]\) > 0" "$out_default"
 assert_match "consumer alert description references consumer_name label" \
   '\$labels\.consumer_name' "$out_default"
+assert_match "stream alert uses nats_stream_consumer_count" \
+  "nats_stream_consumer_count == 0" "$out_default"
+assert_match "stream alert uses nats_stream_total_messages" \
+  "nats_stream_total_messages > 0" "$out_default"
+
+# Negative: ensure no fictional metrics are USED (not just mentioned in comments)
+# in the rendered chart. Filter out comment lines.
+if printf '%s' "$out_default" | grep -vE '^\s*#' | grep -qE 'nats_jetstream_stream_(messages_lost|max_bytes|storage_bytes)|nats_jetstream_consumer_num_pending'; then
+  echo "  FAIL fictional nats-surveyor metric used outside comments"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ok   no fictional nats-surveyor metric used outside comments"
+  PASS=$((PASS + 1))
+fi
 
 echo
 echo "results: $PASS passed, $FAIL failed"
