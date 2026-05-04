@@ -13,8 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   MkDocs Material 9.5.x and deployed by `.github/workflows/docs.yml` on
   every push to `main` that touches `docs/**`, `mkdocs.yml`,
   `requirements-docs.txt`, or the workflow itself. PRs build with
-  `mkdocs build --strict` (no deploy) so broken links and missing nav
-  entries fail review. Existing `docs/*.md` content was wired into the
+  `mkdocs build --strict` (no deploy) so broken anchors and missing nav
+  entries fail review (cross-tree file links currently downgraded to
+  info; see `mkdocs.yml`). Existing `docs/*.md` content was wired into the
   nav unmodified - no source markdown was rewritten. Internal planning
   docs (`phase5-epic-draft.md`, `phase5-plan.md`, `phase6-options.md`,
   `plan.md`) are listed under `exclude_docs` so they remain in the repo
