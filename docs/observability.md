@@ -114,7 +114,7 @@ Add Prometheus / Alertmanager rules under
 | `NATSConsumerLagUnbounded` | `delta(nats_jetstream_consumer_num_pending[10m]) > 0` AND `nats_jetstream_consumer_num_pending > 100` | page | `nats-consumer-lag` |
 | `KEDAScalerError` | `rate(keda_scaler_errors_total[5m]) > 0` | page | `keda-scaler-error` |
 | `OTelCollectorDown` | `up{job="otel-collector"} == 0` for 5m | page | `otel-collector-down` |
-| `OrchestratorDown` | `kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"} == 0` for 2m | page | `orchestrator-down` |
+| `OrchestratorDown` | `absent(kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"})` OR `kube_deployment_status_replicas_available{deployment="daedalus-orchestrator"} == 0` for 2m | page | `orchestrator-down` |
 | `NATSStreamUnhealthy` | `nats_jetstream_stream_messages_lost_total > 0` OR (`nats_jetstream_stream_max_bytes > 0` AND `(nats_jetstream_stream_storage_bytes / on(account, stream_name) nats_jetstream_stream_max_bytes) > 0.9`) | warn | `nats-stream-unhealthy` |
 
 **No SLO threshold alerts in Pass 1.** Cold-start, task latency, and

@@ -39,8 +39,17 @@ spec:
             description: "Pod {{ "{{ $labels.pod }}" }} in namespace {{ "{{ $labels.namespace }}" }} has been restarting continuously for the last 10 minutes."
             runbook_url: "https://github.com/raykao/daedalus/blob/main/docs/runbook.md#worker-crashloop"
 
+        # Covers both failure modes:
+        #   1. Deployment exists with 0 available replicas.
+        #   2. Deployment is missing entirely (e.g. before the orchestrator
+        #      lands in the cluster, or after it has been accidentally
+        #      removed). Bare `== 0` matches no series in case 2 and the
+        #      alert would silently never fire.
         - alert: OrchestratorDown
-          expr: kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"} == 0
+          expr: |
+            absent(kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"})
+            or
+            kube_deployment_status_replicas_available{deployment="{{ $orchestratorName }}"} == 0
           for: 2m
           labels:
             severity: page
