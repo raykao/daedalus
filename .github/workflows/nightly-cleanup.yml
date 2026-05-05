@@ -61,13 +61,18 @@ name: AKS Nightly Cleanup
 
 on:
   schedule:
-    # Runs once daily at 09:00 UTC (~01:00-02:00 America/Los_Angeles,
-    # off-peak). Nothing in the current setup requires sub-daily cleanup
-    # - RGs with an `expires-at` already in the past will simply sit
-    # tagged for at most ~24h before the next reap. Operators who need
-    # an immediate sweep can trigger this workflow on-demand via
-    # `workflow_dispatch` (Actions UI or `gh workflow run`).
-    - cron: '0 9 * * *'
+    # Runs once daily at 09:17 UTC (~01:00-02:00 America/Los_Angeles,
+    # off-peak). The non-zero minute avoids the top-of-hour cron stampede
+    # in GitHub Actions, which is heavily contended and produces the
+    # largest scheduling delays. Nothing in the current setup requires
+    # sub-daily cleanup - RGs with an `expires-at` already in the past
+    # will simply sit tagged for at most ~24h before the next reap.
+    # Note that GHA scheduled workflows can themselves be delayed during
+    # peak load, so the worst-case orphan window may extend slightly
+    # beyond 24h. Operators who need an immediate sweep can trigger this
+    # workflow on-demand via `workflow_dispatch` (Actions UI or
+    # `gh workflow run`).
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- AKS Nightly Cleanup workflow now runs once daily at 09:00 UTC instead
+- AKS Nightly Cleanup workflow now runs once daily at 09:17 UTC instead
   of every 30 minutes. Manual runs remain available via
   `workflow_dispatch`.
 

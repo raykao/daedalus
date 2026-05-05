@@ -212,7 +212,7 @@ the cluster itself.
 
 The cluster has an `expires-at` tag computed at every `terraform apply` as
 `now + ttl_hours` (default 4 hours). The Phase 5.5 cleanup workflow runs once
-daily at 09:00 UTC and deletes any resource group with `auto-destroy=true` whose
+daily at 09:17 UTC and deletes any resource group with `auto-destroy=true` whose
 `expires-at` is in the past.
 
 | Operation                  | Command                              |
@@ -220,7 +220,7 @@ daily at 09:00 UTC and deletes any resource group with `auto-destroy=true` whose
 | Slide the TTL window       | `make deploy-aks-test` (idempotent)  |
 | Manually extend (TF only)  | `terraform -chdir=deploy/terraform apply -var-file=envs/test.tfvars` |
 | Manual destroy now         | `make destroy-aks-test`              |
-| Wait for auto-destroy      | (no-op; cleanup workflow runs daily at 09:00 UTC) |
+| Wait for auto-destroy      | (no-op; cleanup workflow runs daily at 09:17 UTC) |
 
 `terraform output -raw expires_at` prints the current expiry. `make aks-status`
 also surfaces it via the Terraform outputs block.
@@ -261,7 +261,7 @@ mounts are deferred. Today, all runtime secrets live in K8s.
 
 ## 7. Cleanup workflow
 
-`.github/workflows/nightly-cleanup.yml` runs once daily at 09:00 UTC via cron
+`.github/workflows/nightly-cleanup.yml` runs once daily at 09:17 UTC via cron
 and also exposes `workflow_dispatch` with two inputs:
 
 - `dry_run` - when `true`, prints the deletion plan without acting.
@@ -315,7 +315,7 @@ destroy`, RG-gone verification. Idempotent.
 ### 8.2 Wait for the TTL cleanup workflow
 
 Do nothing. The next time `expires-at` is in the past and the cleanup workflow
-runs (cron daily at 09:00 UTC), the RG is deleted. Use this when you simply walk
+runs (cron daily at 09:17 UTC), the RG is deleted. Use this when you simply walk
 away from a test cluster. To reap immediately, dispatch the workflow manually
 (see section 7).
 
@@ -361,7 +361,7 @@ when this variable is set; useful as a guard in CI debugging.
 | `deploy/scripts/deploy-aks.sh`               | Source of truth for `make deploy-aks-test`.   |
 | `deploy/scripts/destroy-aks.sh`              | Source of truth for `make destroy-aks-test`.  |
 | `deploy/terraform/bootstrap/bootstrap.sh`    | One-time remote-state bootstrap.              |
-| `scripts/aks-cleanup.sh`                     | TTL-driven RG reaper; runs daily at 09:00 UTC in CI. |
+| `scripts/aks-cleanup.sh`                     | TTL-driven RG reaper; runs daily at 09:17 UTC in CI. |
 | `test/scripts/validate-aks-deployment.sh`    | 10-step KEDA / cold-start / SIGTERM validator.|
 
 ---

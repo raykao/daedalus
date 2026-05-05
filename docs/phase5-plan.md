@@ -235,7 +235,7 @@ The Make target runs `go test -tags aks_e2e ./test/e2e/aks/... -v -timeout 30m`.
 ### Cleanup behavior
 
 - Success: cluster left up if `KEEP_CLUSTER=1`, otherwise destroyed
-- Failure: cluster always left up; the TTL cleanup will reap it later. Test logs include the RG name and `expires-at` so the engineer can extend or destroy manually.
+- Failure: cluster always left up; the TTL cleanup will reap it later. With the daily reaper, "later" can mean up to ~28h (4h default TTL + ~24h reaper delay); operators wanting immediate teardown should dispatch the `nightly-cleanup.yml` workflow manually. Test logs include the RG name and `expires-at` so the engineer can extend or destroy manually.
 
 ### Dependencies
 
@@ -248,7 +248,7 @@ The Make target runs `go test -tags aks_e2e ./test/e2e/aks/... -v -timeout 30m`.
 ### Deliverables
 
 - `scripts/aks-cleanup.sh`
-- `.github/workflows/nightly-cleanup.yml` (runs daily at 09:00 UTC)
+- `.github/workflows/nightly-cleanup.yml` (runs daily at 09:17 UTC)
 
 ### Tag schema
 
@@ -280,7 +280,7 @@ Flags: `--dry-run`, `--subscription`, `--prefix` (limit to RGs whose name starts
 
 `.github/workflows/nightly-cleanup.yml`:
 
-- Trigger: `schedule: '0 9 * * *'` (daily at 09:00 UTC) plus `workflow_dispatch`
+- Trigger: `schedule: '17 9 * * *'` (daily at 09:17 UTC) plus `workflow_dispatch`
 - Auth: `azure/login@v2` with the cleanup workload identity
 - Steps: checkout, run `scripts/aks-cleanup.sh --prefix rg-daedalus-`
 - Failure handling: on non-zero exit, post a workflow notice (no Slack/email integration in Phase 5)
@@ -332,7 +332,7 @@ Terraform remote state is in `stdaedalustfstate<suffix>` -> container `tfstate` 
 ### Cost guardrails
 
 - TTL is the primary defense
-- Cleanup workflow runs once daily at 09:00 UTC
+- Cleanup workflow runs once daily at 09:17 UTC
 - An optional Azure budget alert at the subscription level is documented in 5.6 but not provisioned by Terraform in Phase 5
 
 ### Out of scope

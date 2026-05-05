@@ -48,7 +48,7 @@ Phase 4 instructions are preserved verbatim in the
                      (wired; Key Vault CSI mount deferred)
   Image publish   : GitHub Actions UAMI (federated OIDC) -> AcrPush
   TTL             : RG tagged auto-destroy=true, expires-at=<RFC3339>
-                    (cleanup workflow reaps daily at 09:00 UTC)
+                    (cleanup workflow reaps daily at 09:17 UTC)
 ```
 
 Key Phase 5 differences from Phase 4:
@@ -59,7 +59,7 @@ Key Phase 5 differences from Phase 4:
   managed identity. Workload identity uses the AKS OIDC issuer.
 - **TTL is the default disposal mechanism.** Manual `terraform destroy` works,
   but the expected lifecycle is "deploy, use, walk away, the cleanup workflow
-  reaps it on the next daily 09:00 UTC run after `expires-at`."
+  reaps it on the next daily 09:17 UTC run after `expires-at`."
 
 ---
 

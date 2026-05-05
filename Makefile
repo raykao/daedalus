@@ -190,7 +190,7 @@ aks-status:
 # ---------------------------------------------------------------------------
 # cleanup-aks-test - manual invocation of scripts/aks-cleanup.sh against the
 # default Phase 5 prefix (rg-daedalus-). The same script runs once daily at
-# 09:00 UTC from .github/workflows/nightly-cleanup.yml.
+# 09:17 UTC from .github/workflows/nightly-cleanup.yml.
 #
 # Usage:
 #   make cleanup-aks-test                 # real run; deletes expired RGs
