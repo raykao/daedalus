@@ -48,7 +48,7 @@ These are settled. Sub-tasks do not re-litigate.
 
 - [ ] **5.4 E2E test harness** - Go test under `test/e2e/aks/` gated by `//go:build aks_e2e`. Reads `aks.env`, publishes A2A task to NATS, observes status transitions, asserts the artifact, logs end-to-end latency. `KEEP_CLUSTER` opt-out for debugging.
 
-- [ ] **5.5 TTL cleanup** - `scripts/aks-cleanup.sh` listing RGs by tag, parsing `expires-at`, destroying expired groups. Scheduled GHA `nightly-cleanup.yml` runs every 30 minutes plus `workflow_dispatch`. Dry-run mode.
+- [ ] **5.5 TTL cleanup** - `scripts/aks-cleanup.sh` listing RGs by tag, parsing `expires-at`, destroying expired groups. Scheduled GHA `nightly-cleanup.yml` runs daily at 09:17 UTC plus `workflow_dispatch`. Dry-run mode.
 
 - [ ] **5.6 Documentation and runbook** - Update `docs/aks-deployment.md` and `docs/runbook.md` for the IaC path, bootstrap process, TTL contract, secret rotation, and troubleshooting. Manual Phase 4 instructions preserved but marked superseded.
 

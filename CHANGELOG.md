@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- AKS Nightly Cleanup workflow now runs once daily at 09:17 UTC instead
+  of every 30 minutes. Manual runs remain available via
+  `workflow_dispatch`.
+
 ### Added
 
 - **MkDocs Material documentation site scaffolded.** New public docs site

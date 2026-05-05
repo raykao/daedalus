@@ -170,7 +170,7 @@ output) against `terraform output gha_oidc_subjects`.
 ## Phase 5.5 cleanup
 
 The Phase 5.5 cleanup workflow (`.github/workflows/nightly-cleanup.yml`)
-runs every 30 minutes, lists resource groups tagged `auto-destroy=true`,
+runs once daily at 09:17 UTC, lists resource groups tagged `auto-destroy=true`,
 and deletes any whose `expires-at` tag is in the past. It authenticates
 via the existing GHA managed identity (`module.gha_identity`).
 

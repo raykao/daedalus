@@ -3,7 +3,7 @@
 #
 # Lists resource groups tagged `auto-destroy=true` and destroys those whose
 # `expires-at` (RFC 3339/ISO 8601 UTC) is in the past. This is the workhorse
-# behind `.github/workflows/nightly-cleanup.yml` (every 30 minutes) and the
+# behind `.github/workflows/nightly-cleanup.yml` (daily at 09:17 UTC) and the
 # `make cleanup-aks-test` Make target.
 #
 # The expected tag schema (enforced by deploy/terraform/locals.tf for any RG
