@@ -61,7 +61,7 @@ name: AKS Nightly Cleanup
 
 on:
   schedule:
-    # Runs once daily at 09:17 UTC (~01:00-02:00 America/Los_Angeles,
+    # Runs once daily at 09:17 UTC (~01:17 PST / 02:17 PDT, America/Los_Angeles,
     # off-peak). The non-zero minute avoids the top-of-hour cron stampede
     # in GitHub Actions, which is heavily contended and produces the
     # largest scheduling delays. Nothing in the current setup requires
