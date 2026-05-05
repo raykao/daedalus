@@ -370,7 +370,7 @@ A Go test under `test/e2e/aks/` gated by `//go:build aks_e2e` that publishes an 
 
 ### 5.5 TTL Cleanup
 
-`scripts/aks-cleanup.sh` lists resource groups tagged `auto-destroy=true`, parses `expires-at`, and destroys any whose timestamp is in the past. A scheduled GHA workflow (`nightly-cleanup.yml`, every 30 minutes) runs the script with appropriate workload identity. Manual invocation is supported for ad-hoc cleanup.
+`scripts/aks-cleanup.sh` lists resource groups tagged `auto-destroy=true`, parses `expires-at`, and destroys any whose timestamp is in the past. A scheduled GHA workflow (`nightly-cleanup.yml`, daily at 09:00 UTC) runs the script with appropriate workload identity. Manual invocation is supported for ad-hoc cleanup via `workflow_dispatch`.
 
 ### 5.6 Documentation and Runbook
 

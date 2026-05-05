@@ -220,7 +220,7 @@ The cluster has an `expires-at` tag computed at every `terraform apply` as
 | Slide the TTL window       | `make deploy-aks-test` (idempotent)  |
 | Manually extend (TF only)  | `terraform -chdir=deploy/terraform apply -var-file=envs/test.tfvars` |
 | Manual destroy now         | `make destroy-aks-test`              |
-| Wait for auto-destroy      | (no-op; cleanup workflow runs ~every 30 min) |
+| Wait for auto-destroy      | (no-op; cleanup workflow runs daily at 09:00 UTC) |
 
 `terraform output -raw expires_at` prints the current expiry. `make aks-status`
 also surfaces it via the Terraform outputs block.
@@ -261,8 +261,8 @@ mounts are deferred. Today, all runtime secrets live in K8s.
 
 ## 7. Cleanup workflow
 
-`.github/workflows/nightly-cleanup.yml` runs every 30 minutes via cron and
-also exposes `workflow_dispatch` with two inputs:
+`.github/workflows/nightly-cleanup.yml` runs once daily at 09:00 UTC via cron
+and also exposes `workflow_dispatch` with two inputs:
 
 - `dry_run` - when `true`, prints the deletion plan without acting.
 - `prefix` - resource group name prefix to scope deletions. Required.
@@ -315,8 +315,9 @@ destroy`, RG-gone verification. Idempotent.
 ### 8.2 Wait for the TTL cleanup workflow
 
 Do nothing. The next time `expires-at` is in the past and the cleanup workflow
-runs (cron every 30 min), the RG is deleted. Use this when you simply walk away
-from a test cluster.
+runs (cron daily at 09:00 UTC), the RG is deleted. Use this when you simply walk
+away from a test cluster. To reap immediately, dispatch the workflow manually
+(see section 7).
 
 ### 8.3 Safety escape hatch
 
@@ -360,7 +361,7 @@ when this variable is set; useful as a guard in CI debugging.
 | `deploy/scripts/deploy-aks.sh`               | Source of truth for `make deploy-aks-test`.   |
 | `deploy/scripts/destroy-aks.sh`              | Source of truth for `make destroy-aks-test`.  |
 | `deploy/terraform/bootstrap/bootstrap.sh`    | One-time remote-state bootstrap.              |
-| `scripts/aks-cleanup.sh`                     | TTL-driven RG reaper; runs every 30 min in CI. |
+| `scripts/aks-cleanup.sh`                     | TTL-driven RG reaper; runs daily at 09:00 UTC in CI. |
 | `test/scripts/validate-aks-deployment.sh`    | 10-step KEDA / cold-start / SIGTERM validator.|
 
 ---

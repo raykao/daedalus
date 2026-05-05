@@ -248,7 +248,7 @@ The Make target runs `go test -tags aks_e2e ./test/e2e/aks/... -v -timeout 30m`.
 ### Deliverables
 
 - `scripts/aks-cleanup.sh`
-- `.github/workflows/nightly-cleanup.yml` (misnomer; runs every 30 minutes)
+- `.github/workflows/nightly-cleanup.yml` (runs daily at 09:00 UTC)
 
 ### Tag schema
 
@@ -280,7 +280,7 @@ Flags: `--dry-run`, `--subscription`, `--prefix` (limit to RGs whose name starts
 
 `.github/workflows/nightly-cleanup.yml`:
 
-- Trigger: `schedule: '*/30 * * * *'` plus `workflow_dispatch`
+- Trigger: `schedule: '0 9 * * *'` (daily at 09:00 UTC) plus `workflow_dispatch`
 - Auth: `azure/login@v2` with the cleanup workload identity
 - Steps: checkout, run `scripts/aks-cleanup.sh --prefix rg-daedalus-`
 - Failure handling: on non-zero exit, post a workflow notice (no Slack/email integration in Phase 5)
@@ -332,7 +332,7 @@ Terraform remote state is in `stdaedalustfstate<suffix>` -> container `tfstate` 
 ### Cost guardrails
 
 - TTL is the primary defense
-- Cleanup workflow runs every 30 minutes
+- Cleanup workflow runs once daily at 09:00 UTC
 - An optional Azure budget alert at the subscription level is documented in 5.6 but not provisioned by Terraform in Phase 5
 
 ### Out of scope

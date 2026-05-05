@@ -1,7 +1,7 @@
 # AKS Nightly Cleanup
 #
-# Scheduled cleanup of TTL-tagged Azure resource groups. Runs every 30
-# minutes and deletes any RG with `auto-destroy=true` whose `expires-at`
+# Scheduled cleanup of TTL-tagged Azure resource groups. Runs once
+# nightly and deletes any RG with `auto-destroy=true` whose `expires-at`
 # tag is in the past. The Phase 5 Terraform stack
 # (deploy/terraform/locals.tf) tags every workload RG with these.
 #
@@ -61,9 +61,13 @@ name: AKS Nightly Cleanup
 
 on:
   schedule:
-    # Every 30 minutes. Cheap because `az group list --tag` is cheap and
-    # `az group delete --no-wait` returns immediately.
-    - cron: '*/30 * * * *'
+    # Runs once daily at 09:00 UTC (~01:00-02:00 America/Los_Angeles,
+    # off-peak). Nothing in the current setup requires sub-daily cleanup
+    # - RGs with an `expires-at` already in the past will simply sit
+    # tagged for at most ~24h before the next reap. Operators who need
+    # an immediate sweep can trigger this workflow on-demand via
+    # `workflow_dispatch` (Actions UI or `gh workflow run`).
+    - cron: '0 9 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -82,8 +86,8 @@ permissions:
   contents: read
 
 # Don't queue overlapping cleanup runs - one in-flight delete is enough.
-# A queued run from a missed schedule will still pick up any RG that
-# remains (Azure's Deleting state is idempotent).
+# A subsequent run (next day, or a manual dispatch) will still pick up
+# any RG that remains (Azure's Deleting state is idempotent).
 concurrency:
   group: nightly-cleanup
   cancel-in-progress: false

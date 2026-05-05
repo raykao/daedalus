@@ -48,7 +48,7 @@ Phase 4 instructions are preserved verbatim in the
                      (wired; Key Vault CSI mount deferred)
   Image publish   : GitHub Actions UAMI (federated OIDC) -> AcrPush
   TTL             : RG tagged auto-destroy=true, expires-at=<RFC3339>
-                    (cleanup workflow reaps every 30 min)
+                    (cleanup workflow reaps daily at 09:00 UTC)
 ```
 
 Key Phase 5 differences from Phase 4:
