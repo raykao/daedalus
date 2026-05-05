@@ -59,7 +59,7 @@ Key Phase 5 differences from Phase 4:
   managed identity. Workload identity uses the AKS OIDC issuer.
 - **TTL is the default disposal mechanism.** Manual `terraform destroy` works,
   but the expected lifecycle is "deploy, use, walk away, the cleanup workflow
-  reaps it within 30 minutes of `expires-at`."
+  reaps it on the next daily 09:00 UTC run after `expires-at`."
 
 ---
 

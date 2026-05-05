@@ -211,8 +211,8 @@ the cluster itself.
 ## 5. TTL contract
 
 The cluster has an `expires-at` tag computed at every `terraform apply` as
-`now + ttl_hours` (default 4 hours). The Phase 5.5 cleanup workflow runs every
-30 minutes and deletes any resource group with `auto-destroy=true` whose
+`now + ttl_hours` (default 4 hours). The Phase 5.5 cleanup workflow runs once
+daily at 09:00 UTC and deletes any resource group with `auto-destroy=true` whose
 `expires-at` is in the past.
 
 | Operation                  | Command                              |
